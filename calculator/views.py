@@ -21,6 +21,8 @@ def calculate(request):
     if request.method != "POST":
         return HttpResponseBadRequest("Only POST allowed")
     try:
+        # Dodaj logowanie:
+        print("Raw request body:", request.body)
         data = json.loads(request.body)
         metric_text = data.get("metric_text")
         if not metric_text:
@@ -53,6 +55,6 @@ def calculate(request):
             "ricciLatex": ricci_latex,
             "einsteinLatex": einstein_latex,
         }
-        return JsonResponse(response_data)
+        return JsonResponse({"status": "ok"})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
