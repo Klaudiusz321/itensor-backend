@@ -14,12 +14,17 @@ from myproject.utilis.tensor_calculations import (
 @require_http_methods(["POST"])
 def calculate(request):
     try:
-        # Parsowanie danych JSON z żądania
+        # Dodaj logowanie dla debugowania
+        print("Otrzymano żądanie:", request.body)
+        
         data = json.loads(request.body)
         metric_text = data.get('metric_text')
         
         if not metric_text:
-            return JsonResponse({'error': 'Brak tekstu metryki'}, status=400)
+            return JsonResponse({
+                'error': 'Brak tekstu metryki',
+                'detail': 'Pole metric_text jest wymagane'
+            }, status=400)
 
         # Obliczenia
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
@@ -36,8 +41,14 @@ def calculate(request):
             'success': True
         })
         
-    except Exception as e:
+    except json.JSONDecodeError as e:
         return JsonResponse({
-            'error': str(e),
-            'success': False
+            'error': 'Nieprawidłowy format JSON',
+            'detail': str(e)
+        }, status=400)
+    except Exception as e:
+        print("Błąd:", str(e))  # Dodaj logowanie błędów
+        return JsonResponse({
+            'error': 'Błąd serwera',
+            'detail': str(e)
         }, status=400)
