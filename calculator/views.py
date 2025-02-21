@@ -7,8 +7,9 @@ from myproject.utilis.tensor_calculations import (
     oblicz_tensory,
     compute_einstein_tensor,
     generate_output,
-    process_latex
+    process_latex,
 )
+from myproject.utilis.numerical_calculations import generate_numerical_curvature
 
 def parse_metric_output(output_text: str) -> dict:
     sections = {
@@ -60,6 +61,7 @@ def calculate(request):
         
         data = json.loads(request.body)
         metric_text = data.get('metric_text')
+        numerical_ranges = data.get('ranges', None)  # Zakresy dla wizualizacji
         
         if not metric_text:
             return JsonResponse({
@@ -67,18 +69,27 @@ def calculate(request):
                 'detail': 'Pole metric_text jest wymagane'
             }, status=400)
 
-        # Obliczenia
+        # Obliczenia symboliczne
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
         g_inv = g.inv()
         G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
         
-        # Generowanie wyniku
+        # Generowanie wyniku symbolicznego
         output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        
-        # Parsowanie wyniku do struktury JSON
         parsed_result = parse_metric_output(output)
+        
+        # Dodajemy obliczenia numeryczne jeśli podano zakresy
+        if numerical_ranges:
+            numerical_data = generate_numerical_curvature(
+                Scalar_Curvature,
+                wspolrzedne,
+                parametry,
+                numerical_ranges
+            )
+            if numerical_data:
+                parsed_result['numerical_data'] = numerical_data
         
         return JsonResponse(parsed_result)
         
