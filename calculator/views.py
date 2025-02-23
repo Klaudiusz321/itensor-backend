@@ -2,14 +2,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 import json
-from myproject.utilis.tensor_calculations import (
-    wczytaj_metryke_z_tekstu,
-    oblicz_tensory,
-    compute_einstein_tensor,
-    generate_output,
-    process_latex,
-)
-from myproject.utilis.numerical_calculations import generate_numerical_curvature
+from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output, generate_numerical_curvature
+
 
 def parse_metric_output(output_text: str) -> dict:
     sections = {
@@ -56,12 +50,11 @@ def parse_metric_output(output_text: str) -> dict:
 @require_http_methods(["POST"])
 def calculate(request):
     try:
-        # Dodaj logowanie dla debugowania
         print("Otrzymano żądanie:", request.body)
         
         data = json.loads(request.body)
         metric_text = data.get('metric_text')
-        numerical_ranges = data.get('ranges', None)  # Zakresy dla wizualizacji
+        numerical_ranges = data.get('ranges', None)
         
         if not metric_text:
             return JsonResponse({
@@ -80,7 +73,6 @@ def calculate(request):
         output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
         parsed_result = parse_metric_output(output)
         
-        # Dodajemy obliczenia numeryczne jeśli podano zakresy
         if numerical_ranges:
             numerical_data = generate_numerical_curvature(
                 Scalar_Curvature,
@@ -99,7 +91,7 @@ def calculate(request):
             'detail': str(e)
         }, status=400)
     except Exception as e:
-        print("Błąd:", str(e))  # Dodaj logowanie błędów
+        print("Błąd:", str(e))
         return JsonResponse({
             'error': 'Błąd serwera',
             'detail': str(e)
