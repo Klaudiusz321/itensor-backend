@@ -29,7 +29,8 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     'calculator1-fc4166db17b2.herokuapp.com',  # Dodaj domenę Heroku
-    'your-backend-domain.com'  # jeśli masz domenę produkcyjną
+    'itensor.online',
+    'www.itensor.online'
 ]
 
 
@@ -121,13 +122,15 @@ USE_I18N = True
 USE_TZ = True
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
+    "http://localhost:5173",  # dla Vite dev server
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://tensor-calculator.netlify.app",
-    "https://calculator1-fc4166db17b2.herokuapp.com",
+    "https://itensor.online"
 ]
+
+CORS_ALLOW_CREDENTIALS = True
 
 # Możesz tymczasowo ustawić to na True podczas developmentu
 CORS_ALLOW_ALL_ORIGINS = True

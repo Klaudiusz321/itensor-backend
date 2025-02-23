@@ -1,6 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_POST
 import json
 from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output, generate_numerical_curvature
 
@@ -47,9 +48,16 @@ def parse_metric_output(output_text: str) -> dict:
     }
 
 @csrf_exempt
-@require_http_methods(["POST"])
+@require_POST
 def calculate(request):
     try:
+        if request.method == 'OPTIONS':
+            response = JsonResponse({})
+            response["Access-Control-Allow-Origin"] = "*"
+            response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+            response["Access-Control-Allow-Headers"] = "Content-Type"
+            return response
+
         print("Otrzymano żądanie:", request.body)
         
         data = json.loads(request.body)
