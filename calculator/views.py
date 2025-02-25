@@ -4,7 +4,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.http import require_POST
 import json
 from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output, generate_numerical_curvature
-
+from myproject.utilis.calcualtion.derivative import numeric_derivative, partial_derivative, total_derivative
 
 def parse_metric_output(output_text: str) -> dict:
     sections = {
@@ -50,19 +50,12 @@ def parse_metric_output(output_text: str) -> dict:
 @csrf_exempt
 @require_POST
 def calculate(request):
+    """
+    Endpoint dla obliczeń symbolicznych (wzory LaTeX)
+    """
     try:
-        if request.method == 'OPTIONS':
-            response = JsonResponse({})
-            response["Access-Control-Allow-Origin"] = "*"
-            response["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-            response["Access-Control-Allow-Headers"] = "Content-Type"
-            return response
-
-        print("Otrzymano żądanie:", request.body)
-        
         data = json.loads(request.body)
         metric_text = data.get('metric_text')
-        numerical_ranges = data.get('ranges', None)
         
         if not metric_text:
             return JsonResponse({
@@ -79,28 +72,125 @@ def calculate(request):
         
         # Generowanie wyniku symbolicznego
         output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        parsed_result = parse_metric_output(output)
+        return JsonResponse(parse_metric_output(output))
         
-        if numerical_ranges:
-            numerical_data = generate_numerical_curvature(
-                Scalar_Curvature,
-                wspolrzedne,
-                parametry,
-                numerical_ranges
-            )
-            if numerical_data:
-                parsed_result['numerical_data'] = numerical_data
-        
-        return JsonResponse(parsed_result)
-        
-    except json.JSONDecodeError as e:
-        return JsonResponse({
-            'error': 'Nieprawidłowy format JSON',
-            'detail': str(e)
-        }, status=400)
     except Exception as e:
         print("Błąd:", str(e))
         return JsonResponse({
             'error': 'Błąd serwera',
             'detail': str(e)
         }, status=400)
+
+def compute_full_tensors(metric_text):
+    """
+    Oblicza wszystkie tensory dla danej metryki.
+    """
+    try:
+        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        n = len(wspolrzedne)
+        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+        g_inv = g.inv()
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        
+        # Zwracamy dane w formacie odpowiednim dla transform_to_curvature_data
+        return {
+            'scalar_curvature': Scalar_Curvature,  # Wyrażenie symboliczne krzywizny skalarnej
+            'coordinates': wspolrzedne,            # Lista symboli współrzędnych
+            'parameters': parametry,               # Lista parametrów
+            'metric_data': {                       # Dodatkowe dane metryczne
+                'metric': g,
+                'christoffel': Gamma,
+                'riemann': R_abcd,
+                'ricci': Ricci,
+                'einstein_upper': G_upper,
+                'einstein_lower': G_lower
+            }
+        }
+    except Exception as e:
+        print(f"Error in compute_full_tensors: {e}")
+        return None
+
+@csrf_exempt
+@require_POST
+def visualize_view(request):
+    try:
+        print("\n=== Rozpoczynam visualize_view ===")
+        data = json.loads(request.body)
+        metric_text = data.get("metric_text", "")
+        
+        print(f"Otrzymano metric_text: {metric_text[:100]}...")
+        
+        if not metric_text:
+            return JsonResponse({
+                'error': 'Brak tekstu metryki',
+                'detail': 'Pole metric_text jest wymagane'
+            }, status=400)
+
+        # 1. Obliczenia podstawowe
+        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        n = len(wspolrzedne)
+        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+        g_inv = g.inv()
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+
+        # 2. Dane numeryczne
+        spatial_coords = [coord for coord in wspolrzedne if str(coord) != 't']
+        ranges = [[-5, 5]] * len(spatial_coords)
+        points_per_dim = 20  # Zmniejszamy dla szybszości testów
+
+        print("\nPrzygotowuję dane do obliczeń numerycznych:")
+        print(f"Współrzędne przestrzenne: {[str(c) for c in spatial_coords]}")
+        print(f"Parametry: {[str(p) for p in parametry]}")
+        print(f"Wyrażenie krzywizny: {Scalar_Curvature}")
+        
+        numerical_data = generate_numerical_curvature(
+            Scalar_Curvature,
+            spatial_coords,
+            parametry,
+            ranges,
+            points_per_dim=points_per_dim
+        )
+
+        if not numerical_data:
+            return JsonResponse({
+                'error': 'Błąd obliczeń numerycznych',
+                'detail': 'Nie udało się wygenerować danych numerycznych'
+            }, status=400)
+
+        # 3. Dane symboliczne
+        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+        symbolic_data = parse_metric_output(output)
+
+        # 4. Pełna odpowiedź
+        response_data = {
+            'numerical': {
+                'points': numerical_data['points'],
+                'values': numerical_data['values'],  # surowe wartości bez normalizacji
+                'ranges': numerical_data['ranges'],
+                'metadata': {
+                    'dimensions': len(spatial_coords),
+                    'coordinates': [str(coord) for coord in spatial_coords],
+                    'parameters': [str(param) for param in parametry],
+                    'num_points': len(numerical_data['points']),
+                    'value_range': [
+                        float(min(numerical_data['values'])),
+                        float(max(numerical_data['values']))
+                    ]
+                }
+            }
+        }
+
+        print("\nWysyłam odpowiedź:")
+        print(f"Liczba punktów: {len(numerical_data['points'])}")
+        print(f"Zakres wartości: {min(numerical_data['values'])} do {max(numerical_data['values'])}")
+        return JsonResponse(response_data)
+        
+    except Exception as e:
+        print(f"\nBŁĄD w visualize_view: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            'error': 'Błąd serwera',
+            'detail': str(e)
+        }, status=500)
+

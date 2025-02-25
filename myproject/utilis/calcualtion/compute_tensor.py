@@ -3,6 +3,8 @@ from ..simplification import custom_simplify
 from .indexes import lower_indices
 
 def oblicz_tensory(wspolrzedne, metryka):
+    t = [s for s in wspolrzedne if str(s) == 't'][0] if any(str(s) == 't' for s in wspolrzedne) else sp.Symbol('t')
+    a = sp.Function('a')(t)
     n = len(wspolrzedne)
 
     g = sp.Matrix(n, n, lambda i, j: metryka.get((i, j), metryka.get((j, i), 0)))
