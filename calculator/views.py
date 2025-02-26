@@ -3,7 +3,12 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import json
 import logging
-from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output
+from myproject.utilis.calcualtion import (
+    oblicz_tensory, 
+    compute_einstein_tensor, 
+    wczytaj_metryke_z_tekstu, 
+    generate_output
+)
 import sympy as sp
 
 logger = logging.getLogger(__name__)

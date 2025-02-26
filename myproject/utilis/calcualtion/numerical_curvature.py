@@ -1,6 +1,5 @@
 import numpy as np
 import sympy as sp
-from myproject.utilis.calcualtion.derivative import numeric_derivative, total_derivative
 import plotly.graph_objects as go
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
@@ -19,87 +18,11 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
         def calculate_curvature_value(*coords):
             """Oblicza wartość krzywizny dla danych współrzędnych"""
             try:
-                substitutions = {}
-                # Upewnij się, że wszystkie współrzędne są podstawione, w tym 't'
-                default_coords = list(wspolrzedne)
-                if not any(str(coord) == 't' for coord in default_coords):
-                    t_symbol = sp.Symbol('t', real=True)
-                    default_coords.insert(0, t_symbol)
-                else:
-                    t_symbol = next(sym for sym in wspolrzedne if str(sym) == 't')
-
-                # Podstawienie dla współrzędnych
-                for coord, val in zip(default_coords, coords):
-                    substitutions[coord] = float(val)  # Konwertujemy na float
-                    # Dodajemy funkcje trygonometryczne dla theta
-                    if 'theta' in str(coord):
-                        substitutions[sp.sin(coord)] = float(np.sin(val))
-                        substitutions[sp.cos(coord)] = float(np.cos(val))
-                    elif 'phi' in str(coord):
-                        substitutions[sp.sin(coord)] = float(np.sin(val))
-                        substitutions[sp.cos(coord)] = float(np.cos(val))
-                    elif 'chi' in str(coord):
-                        substitutions[sp.Symbol('chi')] = float(val)
-
-                # Dla współrzędnych, które nie zostały przekazane, ustaw domyślną wartość
-                if len(coords) < len(default_coords):
-                    substitutions[t_symbol] = 1.0
-
-                # Podstawienie dla funkcji a(t) i jej pochodnych
-                t_val = substitutions.get(t_symbol, 1.0)
-                a_func = sp.Function('a')(t_symbol)
-                
-                # Obliczamy wartości funkcji i pochodnych
-                a_val = float(np.cosh(t_val))
-                da_val = float(np.sinh(t_val))
-                dda_val = float(np.cosh(t_val))
-
-                # Podstawiamy funkcję i jej pochodne
-                substitutions[a_func] = a_val
-                substitutions[sp.Derivative(a_func, t_symbol)] = da_val
-                substitutions[sp.Derivative(a_func, t_symbol, 2)] = dda_val
-
-                # Podstawienie dla 'k'
-                k_symbol = sp.Symbol('k', real=True)
-                if k_symbol in Scalar_Curvature.free_symbols:
-                    substitutions[k_symbol] = 1.0
-
-                print("\nPodstawienia przed obliczeniem:")
-                for k, v in substitutions.items():
-                    print(f"{k} -> {v}")
-
-                # Najpierw wykonujemy podstawienia
-                expr = Scalar_Curvature
-                print("\nWyrażenie początkowe:", expr)
-                
-                # Wykonujemy podstawienia i obliczamy pochodne
-                expr = expr.subs(substitutions)
-                print("Po podstawieniu:", expr)
-                
-                expr = expr.doit()  # Wymuszamy obliczenie pochodnych
-                print("Po doit():", expr)
-                
-                # Próbujemy uprościć
-                expr = sp.simplify(expr)
-                print("Po uproszczeniu:", expr)
-                
-                # Konwertujemy na wartość liczbową
-                numeric_expr = expr.evalf()
-                print("Po evalf():", numeric_expr)
-
-                if numeric_expr.is_number:
-                    result = float(numeric_expr)
-                    print("Końcowy wynik:", result)
-                    return result if np.isfinite(result) and abs(result) < 1e10 else 0.0
-                else:
-                    print("Wyrażenie nie jest liczbą:", numeric_expr)
-                    return 0.0
-
+                subs_dict = {str(w): c for w, c in zip(wspolrzedne, coords)}
+                return float(Scalar_Curvature.subs(subs_dict))
             except Exception as e:
-                print(f"Błąd w obliczeniach: {e}")
-                print("Aktualne wyrażenie:", Scalar_Curvature)
-                print("Podstawienia:", substitutions)
-                return 0.0
+                print(f"Error in calculate_curvature_value: {e}")
+                return np.nan
 
         def get_coordinate_ranges():
             """Określa zakresy dla różnych typów współrzędnych"""
