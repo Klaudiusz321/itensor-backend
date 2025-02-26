@@ -32,52 +32,61 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
                 print(f"Error creating symbol {sym_name}: {e}")
                 raise
 
-        lines = metric_text.split('\n')
+        # Podziel tekst na linie i usuń puste
+        lines = [line.strip() for line in metric_text.split('\n') if line.strip()]
         if not lines:
             raise ValueError("No lines in metric text")
 
-        # Parsuj pierwszą linię dla współrzędnych
-        coord_line = lines[0].strip()
+        print("Processing lines:", lines)
+
+        # Parsuj pierwszą linię - współrzędne
+        coord_line = lines[0]
         wspolrzedne = [create_symbol(s.strip()) for s in coord_line.split(',') if s.strip()]
         print("Parsed coordinates:", [str(w) for w in wspolrzedne])
 
         # Inicjalizuj metrykę
         n = len(wspolrzedne)
         metryka = {}
-        parametry = []
 
-        # Parsuj pozostałe linie
+        # Stwórz bazowy słownik symboli
+        symbols_dict = {str(sym): sym for sym in wspolrzedne}
+        symbols_dict.update({
+            'sin': sp.sin,
+            'cos': sp.cos,
+            'tan': sp.tan,
+            'exp': sp.exp,
+            'k': sp.Symbol('k', real=True),
+            'chi': sp.Symbol('chi', real=True),
+        })
+
+        # Dodaj funkcję a(t)
+        t = symbols_dict.get('t', sp.Symbol('t'))
+        a_func = sp.Function('a')(t)
+        symbols_dict['a'] = a_func
+
+        # Parsuj komponenty metryki
         for line in lines[1:]:
-            line = line.strip()
-            if not line:
-                continue
-
-            if 'g_{' in line:  # Format g_{ij} = expression
+            if '=' in line:  # To jest linia z komponentą metryki
                 try:
-                    # Wyciągnij indeksy i wyrażenie
-                    indices = line[line.find('{')+1:line.find('}')]
-                    i, j = map(int, indices)
+                    # Znajdź indeksy
+                    if 'g_{' in line:
+                        indices = line[line.find('{')+1:line.find('}')]
+                        i, j = map(int, indices)
+                    else:
+                        # Alternatywny format: g_ij lub g(i,j)
+                        for char in '()_{}':
+                            line = line.replace(char, ' ')
+                        parts = line.split('=')[0].split()
+                        i, j = map(int, [p for p in parts if p.isdigit()])
+
+                    # Pobierz wyrażenie
                     expr = line.split('=')[1].strip()
-                    
-                    # Stwórz słownik symboli
-                    symbols_dict = {str(sym): sym for sym in wspolrzedne}
-                    symbols_dict.update({
-                        'sin': sp.sin,
-                        'cos': sp.cos,
-                        'tan': sp.tan,
-                        'exp': sp.exp,
-                        'k': sp.Symbol('k', real=True),
-                        'chi': sp.Symbol('chi', real=True),
-                    })
-                    
-                    # Dodaj funkcję a(t)
-                    t = symbols_dict.get('t', sp.Symbol('t'))
-                    symbols_dict['a'] = sp.Function('a')(t)
                     
                     # Parsuj wyrażenie
                     expr_sympy = sp.sympify(expr, locals=symbols_dict)
                     metryka[(i, j)] = expr_sympy
                     metryka[(j, i)] = expr_sympy  # symetria
+                    print(f"Added metric component ({i},{j}): {expr}")
                     
                 except Exception as e:
                     print(f"Error parsing line '{line}': {e}")
@@ -86,14 +95,15 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         if not metryka:
             raise ValueError("No metric components specified")
 
-        # Zbierz wszystkie parametry (symbole, które nie są współrzędnymi)
+        # Zbierz wszystkie parametry
         all_symbols = set()
         for expr in metryka.values():
             all_symbols.update(expr.free_symbols)
         parametry = list(all_symbols - set(wspolrzedne))
 
-        print("Parsed metric components:", len(metryka))
-        print("Parsed parameters:", [str(p) for p in parametry])
+        print("Final metric components:", len(metryka))
+        print("Final parameters:", [str(p) for p in parametry])
+        print("Metric:", metryka)
 
         return wspolrzedne, parametry, metryka
 
