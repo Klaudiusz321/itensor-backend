@@ -10,7 +10,6 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
 
         # Słownik dla symboli z dodatkowymi założeniami
         symbol_assumptions = {
-            'a': dict(real=True, positive=True),
             't': dict(real=True),
             'r': dict(real=True),
             'theta': dict(real=True),
@@ -49,7 +48,12 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         metryka = {}
 
         # Stwórz bazowy słownik symboli
-        symbols_dict = {str(sym): sym for sym in wspolrzedne}
+        t = sp.Symbol('t', real=True)
+        a = sp.Function('a')(t)  # Definiujemy a(t) jako funkcję
+        
+        symbols_dict = {
+            str(sym): sym for sym in wspolrzedne
+        }
         symbols_dict.update({
             'sin': sp.sin,
             'cos': sp.cos,
@@ -57,30 +61,23 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
             'exp': sp.exp,
             'k': sp.Symbol('k', real=True),
             'chi': sp.Symbol('chi', real=True),
+            't': t,
+            'a': a,  # Dodajemy funkcję a(t)
         })
-
-        # Dodaj funkcję a(t)
-        t = symbols_dict.get('t', sp.Symbol('t'))
-        a_func = sp.Function('a')(t)
-        symbols_dict['a'] = a_func
 
         # Parsuj komponenty metryki
         for line in lines[1:]:
-            if '=' in line:  # To jest linia z komponentą metryki
+            if 'g_{' in line and '=' in line:  # To jest linia z komponentą metryki
                 try:
                     # Znajdź indeksy
-                    if 'g_{' in line:
-                        indices = line[line.find('{')+1:line.find('}')]
-                        i, j = map(int, indices)
-                    else:
-                        # Alternatywny format: g_ij lub g(i,j)
-                        for char in '()_{}':
-                            line = line.replace(char, ' ')
-                        parts = line.split('=')[0].split()
-                        i, j = map(int, [p for p in parts if p.isdigit()])
+                    indices = line[line.find('{')+1:line.find('}')]
+                    i, j = map(int, indices)
 
                     # Pobierz wyrażenie
                     expr = line.split('=')[1].strip()
+                    
+                    # Zamień a(t) na odpowiednią formę
+                    expr = expr.replace('a(t)', 'a')
                     
                     # Parsuj wyrażenie
                     expr_sympy = sp.sympify(expr, locals=symbols_dict)
