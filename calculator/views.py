@@ -115,19 +115,32 @@ def compute_full_tensors(metric_text):
 def visualize_view(request):
     try:
         print("\n=== Rozpoczynam visualize_view ===")
-        print("Request headers:", request.headers)
-        print("Request body:", request.body.decode('utf-8'))
+        print("Request headers:", dict(request.headers))
+        print("Content-Type:", request.headers.get('content-type'))
         
-        data = json.loads(request.body)
-        metric_text = data.get("metric_text", "")
+        # Debugowanie body requestu
+        body = request.body.decode('utf-8')
+        print("Raw request body:", body)
         
-        if not metric_text:
+        try:
+            data = json.loads(body)
+            print("Parsed JSON data:", data)
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
             return JsonResponse({
-                'error': 'Brak tekstu metryki'
+                'error': 'Invalid JSON format',
+                'details': str(e)
             }, status=400)
 
-        # Dodaj więcej logowania
-        print(f"Przetwarzam metrykę: {metric_text}")
+        metric_text = data.get("metric_text")
+        if not metric_text:
+            print("Missing metric_text in request")
+            return JsonResponse({
+                'error': 'Missing metric_text',
+                'received_data': data
+            }, status=400)
+
+        print(f"Processing metric_text: {metric_text}")
         
         # 1. Obliczenia podstawowe
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
