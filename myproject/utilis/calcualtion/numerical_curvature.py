@@ -1,140 +1,178 @@
 import numpy as np
 import sympy as sp
 from myproject.utilis.calcualtion.derivative import numeric_derivative, total_derivative
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import io
+import base64
 
 def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=50):
-    
     try:
         print("\nAnaliza wejścia:")
         print("Scalar_Curvature:", Scalar_Curvature)
         print("Współrzędne:", [str(w) for w in wspolrzedne])
         print("Parametry:", [str(p) for p in parametry])
 
-        # 1. Znajdujemy symbole używane w wyrażeniu
-        t = [s for s in wspolrzedne if str(s) == 't'][0] if any(str(s) == 't' for s in wspolrzedne) else sp.Symbol('t')
-        a = sp.Function('a')(t)  # Używamy tego samego symbolu co w Scalar_Curvature
-        
-        # Znajdujemy pochodne w wyrażeniu
-        derivatives = Scalar_Curvature.atoms(sp.Derivative)
-        print("Znalezione pochodne:", derivatives)
-
-        def safe_scalar_curvature(chi_val, theta_val, phi_val):
+        def calculate_curvature_value(*coords):
+            """Oblicza wartość krzywizny dla danych współrzędnych"""
             try:
-                # Sprawdzamy warunki osobliwości z mniejszą czułością
-                if abs(np.sin(theta_val)) < 1e-5 and abs(theta_val) < 1e-5:
-                    # Jesteśmy blisko θ = 0
-                    theta_val = 1e-5
-                elif abs(np.sin(theta_val)) < 1e-5 and abs(theta_val - np.pi) < 1e-5:
-                    # Jesteśmy blisko θ = π
-                    theta_val = np.pi - 1e-5
+                substitutions = {}
+                # Upewnij się, że wszystkie współrzędne są podstawione, w tym 't'
+                default_coords = list(wspolrzedne)
+                if not any(str(coord) == 't' for coord in default_coords):
+                    t_symbol = sp.Symbol('t', real=True)
+                    default_coords.insert(0, t_symbol)
+                else:
+                    t_symbol = next(sym for sym in wspolrzedne if str(sym) == 't')
 
-                # Obliczamy wartości funkcji skali i jej pochodnych
-                t_val = 2.0
+                # Podstawienie dla współrzędnych
+                for coord, val in zip(default_coords, coords):
+                    substitutions[coord] = float(val)  # Konwertujemy na float
+                    # Dodajemy funkcje trygonometryczne dla theta
+                    if 'theta' in str(coord):
+                        substitutions[sp.sin(coord)] = float(np.sin(val))
+                        substitutions[sp.cos(coord)] = float(np.cos(val))
+                    elif 'phi' in str(coord):
+                        substitutions[sp.sin(coord)] = float(np.sin(val))
+                        substitutions[sp.cos(coord)] = float(np.cos(val))
+                    elif 'chi' in str(coord):
+                        substitutions[sp.Symbol('chi')] = float(val)
+
+                # Dla współrzędnych, które nie zostały przekazane, ustaw domyślną wartość
+                if len(coords) < len(default_coords):
+                    substitutions[t_symbol] = 1.0
+
+                # Podstawienie dla funkcji a(t) i jej pochodnych
+                t_val = substitutions.get(t_symbol, 1.0)
+                a_func = sp.Function('a')(t_symbol)
                 
-                # Funkcja skali z zależnością od współrzędnych
-                current_a = np.cosh(t_val) * (1 + 0.1 * chi_val**2) * np.sin(theta_val)
+                # Obliczamy wartości funkcji i pochodnych
+                a_val = float(np.cosh(t_val))
+                da_val = float(np.sinh(t_val))
+                dda_val = float(np.cosh(t_val))
+
+                # Podstawiamy funkcję i jej pochodne
+                substitutions[a_func] = a_val
+                substitutions[sp.Derivative(a_func, t_symbol)] = da_val
+                substitutions[sp.Derivative(a_func, t_symbol, 2)] = dda_val
+
+                # Podstawienie dla 'k'
+                k_symbol = sp.Symbol('k', real=True)
+                if k_symbol in Scalar_Curvature.free_symbols:
+                    substitutions[k_symbol] = 1.0
+
+                # Najpierw wykonujemy podstawienia
+                expr = Scalar_Curvature
                 
-                # Pierwsza pochodna
-                current_a_prime = (np.sinh(t_val) * (1 + 0.1 * chi_val**2) * np.sin(theta_val) + 
-                                 0.2 * chi_val * np.cosh(t_val) * np.sin(theta_val))
+                # Wykonujemy podstawienia i obliczamy pochodne
+                expr = expr.subs(substitutions)
+                expr = expr.doit()  # Wymuszamy obliczenie pochodnych
+                expr = sp.simplify(expr)  # Upraszczamy wyrażenie
                 
-                # Druga pochodna
-                current_a_double_prime = (np.cosh(t_val) * (1 + 0.1 * chi_val**2) * np.sin(theta_val) +
-                                        0.4 * chi_val * np.sinh(t_val) * np.sin(theta_val) +
-                                        0.2 * np.cosh(t_val) * np.sin(theta_val))
+                # Sprawdzamy czy wszystkie symbole zostały podstawione
+                remaining_symbols = expr.free_symbols
+                if remaining_symbols:
+                    print(f"Ostrzeżenie: Pozostały symbole: {remaining_symbols}")
+                    # Podstawiamy 1.0 za pozostałe symbole
+                    for sym in remaining_symbols:
+                        expr = expr.subs(sym, 1.0)
 
-                # Parametr k z zależnością od współrzędnych
-                k_value = 1.0 + 0.1 * np.sin(theta_val) * np.cos(phi_val)
+                # Konwertujemy na wartość liczbową
+                numeric_expr = expr.evalf()
 
-                print(f"\nWartości w punkcie [chi={chi_val}, theta={theta_val}, phi={phi_val}]:")
-                print(f"a(t) = {current_a}")
-                print(f"a'(t) = {current_a_prime}")
-                print(f"a''(t) = {current_a_double_prime}")
-                print(f"k = {k_value}")
-
-                # Tworzymy podstawienia używając oryginalnych symboli
-                substitutions = {
-                    t: t_val,
-                    a: current_a,
-                    sp.Derivative(a, t): current_a_prime,
-                    sp.Derivative(a, (t, 2)): current_a_double_prime,
-                    sp.Symbol('k'): k_value,
-                    sp.Symbol('chi'): chi_val,
-                    sp.Symbol('theta'): theta_val,
-                    sp.Symbol('phi'): phi_val
-                }
-
-                # Wykonujemy podstawienia i upraszczamy
-                expr = Scalar_Curvature.subs(substitutions)
-                expr = sp.simplify(expr)
-                
-                try:
-                    result = float(expr.evalf())
-                    if not np.isfinite(result) or abs(result) > 1e10:
-                        print(f"Nieskończona lub zbyt duża wartość: {result}")
-                        return 0.0
-                    return result
-                except Exception as e:
-                    print(f"Błąd konwersji: {e}")
-                    print("Wyrażenie:", expr)
+                if numeric_expr.is_number:
+                    result = float(numeric_expr)
+                    return result if np.isfinite(result) and abs(result) < 1e10 else 0.0
+                else:
+                    print(f"Wyrażenie nie jest liczbą: {numeric_expr}")
                     return 0.0
 
             except Exception as e:
                 print(f"Błąd w obliczeniach: {e}")
+                print("Aktualne wyrażenie:", Scalar_Curvature)
+                print("Podstawienia:", substitutions)
                 return 0.0
 
-        # 3. Generujemy punkty (z unikaniem osobliwości)
-        modified_ranges = []
-        eps = 1e-3
-        for coord in wspolrzedne:
-            name = str(coord)
-            if name == 'theta':
-                modified_ranges.append([eps, np.pi - eps])
-            elif name == 'phi':
-                modified_ranges.append([0, 2*np.pi - eps])
-            else:
-                modified_ranges.append([-2.0, 2.0])
+        def get_coordinate_ranges():
+            """Określa zakresy dla różnych typów współrzędnych"""
+            ranges = []
+            for coord in wspolrzedne:
+                name = str(coord)
+                if name == 't':
+                    ranges.append([0, 2.0])
+                elif name == 'chi':
+                    ranges.append([-0.99, 0.99])  # unikamy k*chi^2 = 1
+                elif name == 'theta':
+                    ranges.append([1e-3, np.pi - 1e-3])
+                elif name == 'phi':
+                    ranges.append([0, 2*np.pi - 1e-3])
+                else:
+                    ranges.append([-1.0, 1.0])
+            return ranges
 
-        coordinate_grids = []
-        for (min_val, max_val) in modified_ranges:
-            grid = np.linspace(min_val, max_val, points_per_dim)
-            coordinate_grids.append(grid)
-
-        mesh_grids = np.meshgrid(*coordinate_grids)
+        # Generujemy punkty
+        coord_ranges = get_coordinate_ranges()
+        grid_points = []
+        for min_val, max_val in coord_ranges:
+            grid_points.append(np.linspace(min_val, max_val, points_per_dim))
+        
+        # Tworzymy siatkę punktów
+        mesh_grids = np.meshgrid(*grid_points)
         points = np.vstack([grid.flatten() for grid in mesh_grids]).T
-
-        # 4. Obliczamy wartości krzywizny
+        
+        # Obliczamy wartości krzywizny
         curvature_values = []
-        for i, point in enumerate(points):
-            if i % 100 == 0:  # Status co 100 punktów
-                print(f"Przetwarzanie punktu {i}/{len(points)}")
-            value = safe_scalar_curvature(*point)
+        for point in points:
+            value = calculate_curvature_value(*point)
             curvature_values.append(value)
 
         curvature_values = np.array(curvature_values)
         
-        # Sprawdzamy czy mamy niezerowe wartości
-        nonzero_values = curvature_values[curvature_values != 0]
+        # Usuwamy wartości ekstremalne
+        nonzero_values = curvature_values[np.abs(curvature_values) > 1e-10]
         if len(nonzero_values) > 0:
-            # 5. Usuwamy ekstremalne wartości tylko jeśli mamy niezerowe wartości
             percentile_5 = np.percentile(nonzero_values, 5)
             percentile_95 = np.percentile(nonzero_values, 95)
             curvature_values = np.clip(curvature_values, percentile_5, percentile_95)
-        else:
-            print("UWAGA: Wszystkie wartości krzywizny są zerowe!")
+            
+            print(f"\nStatystyki krzywizny:")
+            print(f"Min: {np.min(nonzero_values)}")
+            print(f"Max: {np.max(nonzero_values)}")
+            print(f"Średnia: {np.mean(nonzero_values)}")
+            print(f"Mediana: {np.median(nonzero_values)}")
+
+        # Generujemy wykres
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        sc = ax.scatter(points[:, 0], points[:, 1], curvature_values,
+                       c=curvature_values, cmap='viridis')
+        plt.colorbar(sc, label='Curvature')
+        
+        ax.set_xlabel(str(wspolrzedne[0]))
+        ax.set_ylabel(str(wspolrzedne[1]))
+        ax.set_zlabel('Curvature')
+        plt.title("3D Wykres Krzywizny")
+
+        # Zapisujemy wykres do bufora
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        
+        # Konwertujemy do base64
+        plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+        
+        # Zamykamy wykres aby zwolnić pamięć
+        plt.close(fig)
 
         result = {
+            'plot': plot_data,
             'points': points.tolist(),
             'values': curvature_values.tolist(),
-            'ranges': modified_ranges
+            'ranges': coord_ranges,
+            'coordinates': [str(coord) for coord in wspolrzedne]
         }
 
-        print("\nWygenerowano wynik pomyślnie!")
-        print(f"Liczba punktów: {len(points)}")
-        print(f"Liczba niezerowych wartości: {len(nonzero_values)}")
-        if len(nonzero_values) > 0:
-            print(f"Zakres wartości: [{np.min(nonzero_values)}, {np.max(nonzero_values)}]")
-        
         return result
 
     except Exception as e:

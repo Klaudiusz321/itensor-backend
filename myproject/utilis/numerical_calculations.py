@@ -1,21 +1,12 @@
 import numpy as np
 import sympy as sp
+import json
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 
 def auto_substitute_defaults(expr, default=1.0, user_defaults=None):
-    """
-    Dla danego wyrażenia symbolicznego `expr` automatycznie wykrywa wszystkie wolne symbole 
-    (free_symbols) i podstawia im wartości numeryczne.
-    
-    Parametry:
-      expr: wyrażenie sympy (np. sp.sympify(...))
-      default: domyślna wartość (np. 1.0), która zostanie podstawiona dla symbolu, 
-               jeśli nie podano wartości przez użytkownika.
-      user_defaults: opcjonalny słownik, w którym klucze to nazwy symboli (jako string),
-                     a wartości to numeryczne wartości, które mają zostać podstawione.
-    
-    Zwraca:
-      Wyrażenie z podstawionymi wartościami.
-    """
+   
     if user_defaults is None:
         user_defaults = {}
     

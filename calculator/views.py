@@ -157,32 +157,16 @@ def visualize_view(request):
                 'detail': 'Nie udało się wygenerować danych numerycznych'
             }, status=400)
 
-        # 3. Dane symboliczne
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        symbolic_data = parse_metric_output(output)
-
-        # 4. Pełna odpowiedź
+        # Zwracamy tylko niezbędne dane wraz z wykresem
         response_data = {
-            'numerical': {
-                'points': numerical_data['points'],
-                'values': numerical_data['values'],  # surowe wartości bez normalizacji
-                'ranges': numerical_data['ranges'],
-                'metadata': {
-                    'dimensions': len(spatial_coords),
-                    'coordinates': [str(coord) for coord in spatial_coords],
-                    'parameters': [str(param) for param in parametry],
-                    'num_points': len(numerical_data['points']),
-                    'value_range': [
-                        float(min(numerical_data['values'])),
-                        float(max(numerical_data['values']))
-                    ]
-                }
+            'plot': numerical_data['plot'],  # base64 string z wykresem
+            'metadata': {
+                'dimensions': len(spatial_coords),
+                'coordinates': [str(coord) for coord in spatial_coords],
+                'parameters': [str(param) for param in parametry]
             }
         }
 
-        print("\nWysyłam odpowiedź:")
-        print(f"Liczba punktów: {len(numerical_data['points'])}")
-        print(f"Zakres wartości: {min(numerical_data['values'])} do {max(numerical_data['values'])}")
         return JsonResponse(response_data)
         
     except Exception as e:
