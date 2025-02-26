@@ -186,11 +186,8 @@ def visualize_view(request):
         return JsonResponse(response_data)
         
     except Exception as e:
-        print(f"\nBŁĄD w visualize_view: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error in visualize_view: {str(e)}")  # to pojawi się w logach Heroku
         return JsonResponse({
-            'error': 'Błąd serwera',
-            'detail': str(e)
+            'error': str(e)
         }, status=500)
 

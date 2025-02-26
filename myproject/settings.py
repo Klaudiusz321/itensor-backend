@@ -26,11 +26,10 @@ SECRET_KEY = 'django-insecure-i@o(q5@-3#)!dh&3o#@$0rp9#9=54v-cjt+2e6!a1hvxwh)ody
 DEBUG = True
 
 ALLOWED_HOSTS = [
+    'tensor-calculator-cbcf2141c885.herokuapp.com',
+    'itensor.online',
     'localhost',
     '127.0.0.1',
-    'calculator1-fc4166db17b2.herokuapp.com',  # Dodaj domenę Heroku
-    'itensor.online',
-    'www.itensor.online'
 ]
 
 
@@ -123,7 +122,7 @@ USE_TZ = True
 
 CORS_ALLOWED_ORIGINS = [
     "https://itensor.online",
-    "http://localhost:5173",  # dla developmentu
+    "http://localhost:5173",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
