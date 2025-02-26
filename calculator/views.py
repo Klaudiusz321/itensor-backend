@@ -58,74 +58,71 @@ def calculate_view(request):
     try:
         print("\n=== Starting calculate_view ===")
         
-        # 1. Sprawdź request
-        print("Headers:", dict(request.headers))
-        body = request.body.decode('utf-8')
-        print("Raw body:", body)
-        
-        # 2. Parsuj JSON
-        try:
-            data = json.loads(body)
-            print("Parsed data:", data)
-        except json.JSONDecodeError as e:
-            print("JSON decode error:", e)
+        # 1. Walidacja requestu
+        if not request.body:
             return JsonResponse({
-                'error': 'Invalid JSON format',
+                'error': 'Empty request body'
+            }, status=400)
+
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError as e:
+            return JsonResponse({
+                'error': 'Invalid JSON',
                 'details': str(e)
             }, status=400)
 
-        # 3. Sprawdź metric_text
+        # 2. Walidacja metric_text
         metric_text = data.get('metric_text')
-        if not metric_text:
-            print("Missing metric_text")
+        if not metric_text or not isinstance(metric_text, str):
             return JsonResponse({
-                'error': 'Missing metric_text'
+                'error': 'Missing or invalid metric_text'
             }, status=400)
-        
-        print("Received metric_text:", metric_text)
 
-        # 4. Parsuj metrykę
+        print(f"Received metric_text: {metric_text}")
+
+        # 3. Parsowanie metryki
         try:
             wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-            print("Parsed coordinates:", [str(w) for w in wspolrzedne])
-            print("Parsed parameters:", [str(p) for p in parametry])
-            print("Parsed metric:", metryka)
-        except Exception as e:
-            print("Metric parsing error:", e)
+        except ValueError as e:
             return JsonResponse({
-                'error': 'Invalid metric format',
+                'error': 'Metric parsing error',
                 'details': str(e)
             }, status=400)
+        except Exception as e:
+            print(f"Unexpected error in metric parsing: {e}")
+            return JsonResponse({
+                'error': 'Server error during metric parsing',
+                'details': str(e)
+            }, status=500)
 
-        # 5. Oblicz tensory
+        # 4. Obliczenia
         try:
             n = len(wspolrzedne)
             g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
             g_inv = g.inv()
             G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
         except Exception as e:
-            print("Tensor calculation error:", e)
+            print(f"Calculation error: {e}")
             return JsonResponse({
                 'error': 'Calculation error',
                 'details': str(e)
             }, status=400)
 
-        # 6. Generuj output
+        # 5. Generowanie wyniku
         try:
             output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
             result = parse_metric_output(output)
-            print("Generated output successfully")
+            return JsonResponse(result)
         except Exception as e:
-            print("Output generation error:", e)
+            print(f"Output generation error: {e}")
             return JsonResponse({
                 'error': 'Output generation error',
                 'details': str(e)
-            }, status=400)
-
-        return JsonResponse(result)
+            }, status=500)
 
     except Exception as e:
-        print("Unexpected error:", e)
+        print(f"Unexpected server error: {e}")
         import traceback
         traceback.print_exc()
         return JsonResponse({

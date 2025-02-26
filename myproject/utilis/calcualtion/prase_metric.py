@@ -2,6 +2,9 @@ import sympy as sp
 
 def wczytaj_metryke_z_tekstu(metric_text: str):
     try:
+        if not metric_text or not isinstance(metric_text, str):
+            raise ValueError("Invalid metric_text input")
+
         print("\n=== Parsing metric text ===")
         print("Input text:", metric_text)
         
@@ -11,21 +14,43 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
             'psi': dict(real=True),
             'theta': dict(real=True),
             'phi': dict(real=True),
+            't': dict(real=True),
+            'r': dict(real=True),
+            'x': dict(real=True),
+            'y': dict(real=True),
+            'z': dict(real=True),
         }
 
         def create_symbol(sym_name):
-            print(f"Creating symbol: {sym_name}")
-            if sym_name in symbol_assumptions:
-                return sp.Symbol(sym_name, **symbol_assumptions[sym_name])
-            else:
+            try:
+                sym_name = sym_name.strip()
+                if not sym_name:
+                    raise ValueError("Empty symbol name")
+                    
+                if sym_name in symbol_assumptions:
+                    return sp.Symbol(sym_name, **symbol_assumptions[sym_name])
                 return sp.Symbol(sym_name)
+            except Exception as e:
+                print(f"Error creating symbol {sym_name}: {e}")
+                raise
 
         wspolrzedne = []
         parametry = []
         metryka = {}
 
-        lines = metric_text.splitlines()
-        print("Split lines:", lines)
+        if not metric_text.strip():
+            raise ValueError("Empty metric text")
+
+        lines = [line.strip() for line in metric_text.splitlines() if line.strip()]
+        if not lines:
+            raise ValueError("No valid lines in metric text")
+
+        print("Processing lines:", lines)
+
+        # Pierwsza linia musi zawierać współrzędne
+        first_line = lines[0]
+        if ';' not in first_line:
+            raise ValueError("First line must contain coordinates (format: x,y,z;a,b)")
 
         for line in lines:
             line = line.split('#')[0].strip()
@@ -65,5 +90,5 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         return wspolrzedne, parametry, metryka
 
     except Exception as e:
-        print("Error in wczytaj_metryke_z_tekstu:", e)
-        raise
+        print(f"Error in wczytaj_metryke_z_tekstu: {str(e)}")
+        raise ValueError(f"Metric parsing error: {str(e)}")
