@@ -6,6 +6,8 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Ustaw backend niewymagający GUI
+import io
+import base64
 
 def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=50):
     try:
@@ -147,65 +149,37 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
             print(f"Średnia: {np.mean(nonzero_values)}")
             print(f"Mediana: {np.median(nonzero_values)}")
 
+        # Po obliczeniu wartości krzywizny, generujemy wykres
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Rysujemy punkty w przestrzeni 3D
+        scatter = ax.scatter(points[:, 0], points[:, 1], curvature_values,
+                           c=curvature_values,
+                           cmap='viridis',
+                           s=50)  # rozmiar punktów
+        
+        plt.colorbar(scatter, label='Curvature')
+        
+        ax.set_xlabel(str(wspolrzedne[0]))
+        ax.set_ylabel(str(wspolrzedne[1]))
+        ax.set_zlabel('Curvature')
+        plt.title("3D Visualization of Curvature")
+        
+        # Konwertujemy wykres do base64
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+        buf.seek(0)
+        plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+        plt.close(fig)  # Zamykamy wykres
+
         result = {
             'points': points.tolist(),
             'values': curvature_values.tolist(),
             'ranges': coord_ranges,
-            'coordinates': [str(coord) for coord in wspolrzedne]
+            'coordinates': [str(coord) for coord in wspolrzedne],
+            'plot': plot_data  # Dodajemy zakodowany wykres
         }
-
-        def visualize_curvature(points, curvature_values, coordinates):
-            """Wizualizuje krzywiznę używając Plotly i Matplotlib"""
-            # Przekształcamy punkty na tablicę numpy
-            points = np.array(points)
-            curvature = np.array(curvature_values)
-
-            # 1. Plotly visualization
-            fig_plotly = go.Figure(data=[go.Scatter3d(
-                x=points[:, 0],
-                y=points[:, 1],
-                z=curvature,
-                mode='markers',
-                marker=dict(
-                    size=3,
-                    color=curvature,
-                    colorscale='Viridis',
-                    colorbar=dict(title='Curvature')
-                )
-            )])
-
-            fig_plotly.update_layout(
-                title="3D Wykres Krzywizny (Plotly)",
-                scene=dict(
-                    xaxis_title=coordinates[0],
-                    yaxis_title=coordinates[1],
-                    zaxis_title='Curvature'
-                )
-            )
-
-            # 2. Matplotlib visualization
-            fig_mpl = plt.figure(figsize=(10, 8))
-            ax = fig_mpl.add_subplot(111, projection='3d')
-            sc = ax.scatter(points[:, 0], points[:, 1], curvature, 
-                           c=curvature, cmap='viridis')
-            plt.colorbar(sc, label='Curvature')
-            ax.set_xlabel(coordinates[0])
-            ax.set_ylabel(coordinates[1])
-            ax.set_zlabel('Curvature')
-            plt.title("3D Wykres Krzywizny (Matplotlib)")
-
-            return fig_plotly, fig_mpl
-
-        # Generujemy wykresy
-        fig_plotly, fig_mpl = visualize_curvature(
-            points, 
-            curvature_values, 
-            result['coordinates']
-        )
-
-        # Dodajemy wykresy do wyniku
-        result['plotly_figure'] = fig_plotly
-        result['matplotlib_figure'] = fig_mpl
 
         return result
 

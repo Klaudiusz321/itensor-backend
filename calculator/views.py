@@ -118,7 +118,6 @@ def visualize_view(request):
         print("Request headers:", dict(request.headers))
         print("Content-Type:", request.headers.get('content-type'))
         
-        # Debugowanie body requestu
         body = request.body.decode('utf-8')
         print("Raw request body:", body)
         
@@ -142,70 +141,39 @@ def visualize_view(request):
 
         print(f"Processing metric_text: {metric_text}")
         
-        # 1. Obliczenia podstawowe
+        # Obliczenia...
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
         g_inv = g.inv()
         G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
 
-        # 2. Dane numeryczne
-        spatial_coords = [coord for coord in wspolrzedne if str(coord) != 't']
-        ranges = [[-5, 5]] * len(spatial_coords)
-        points_per_dim = 20  # Zmniejszamy dla szybszości testów
-
-        print("\nPrzygotowuję dane do obliczeń numerycznych:")
-        print(f"Współrzędne przestrzenne: {[str(c) for c in spatial_coords]}")
-        print(f"Parametry: {[str(p) for p in parametry]}")
-        print(f"Wyrażenie krzywizny: {Scalar_Curvature}")
-        
+        # Generowanie danych numerycznych i wykresu
         numerical_data = generate_numerical_curvature(
             Scalar_Curvature,
-            spatial_coords,
+            wspolrzedne,
             parametry,
-            ranges,
-            points_per_dim=points_per_dim
+            ranges=[[-5, 5]] * len(wspolrzedne),
+            points_per_dim=20
         )
 
         if not numerical_data:
             return JsonResponse({
-                'error': 'Błąd obliczeń numerycznych',
-                'detail': 'Nie udało się wygenerować danych numerycznych'
+                'error': 'Błąd generowania wykresu'
             }, status=400)
 
-        # 3. Dane symboliczne
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        symbolic_data = parse_metric_output(output)
-
-        # 4. Pełna odpowiedź
+        # Zwracamy dane wraz z wykresem
         response_data = {
-            'numerical': {
-                'points': numerical_data['points'],
-                'values': numerical_data['values'],  # surowe wartości bez normalizacji
-                'ranges': numerical_data['ranges'],
-                'metadata': {
-                    'dimensions': len(spatial_coords),
-                    'coordinates': [str(coord) for coord in spatial_coords],
-                    'parameters': [str(param) for param in parametry],
-                    'num_points': len(numerical_data['points']),
-                    'value_range': [
-                        float(min(numerical_data['values'])),
-                        float(max(numerical_data['values']))
-                    ]
-                }
+            'plot': numerical_data['plot'],  # base64 string z wykresem
+            'metadata': {
+                'dimensions': len(wspolrzedne),
+                'coordinates': [str(coord) for coord in wspolrzedne],
+                'parameters': [str(param) for param in parametry]
             }
         }
 
-        print("\nWysyłam odpowiedź:")
-        print(f"Liczba punktów: {len(numerical_data['points'])}")
-        print(f"Zakres wartości: {min(numerical_data['values'])} do {max(numerical_data['values'])}")
         return JsonResponse(response_data)
-        
-    except json.JSONDecodeError as e:
-        print(f"Błąd dekodowania JSON: {e}")
-        return JsonResponse({
-            'error': 'Nieprawidłowy format JSON'
-        }, status=400)
+
     except Exception as e:
         print(f"Nieoczekiwany błąd: {e}")
         import traceback
