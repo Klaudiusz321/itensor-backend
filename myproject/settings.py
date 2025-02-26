@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-i@o(q5@-3#)!dh&3o#@$0rp9#9=54v-cjt+2e6!a1hvxwh)ody
 DEBUG = True
 
 ALLOWED_HOSTS = [
-    'tensor-calculator-cbcf2141c885.herokuapp.com',
+    'calculator1-fc4166db17b2.herokuapp.com',
     'itensor.online',
     'localhost',
     '127.0.0.1',
