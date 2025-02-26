@@ -89,20 +89,29 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
                     print(f"Error parsing line '{line}': {e}")
                     raise ValueError(f"Invalid metric component format: {line}")
 
-        if not metryka:
-            raise ValueError("No metric components specified")
+        # Uzupełnij brakujące komponenty metryki
+        full_metric = {}
+        for i in range(n):
+            for j in range(n):
+                if (i, j) in metryka:
+                    full_metric[(i, j)] = metryka[(i, j)]
+                elif (j, i) in metryka:
+                    full_metric[(i, j)] = metryka[(j, i)]
+                else:
+                    # Dla metryki diagonalnej, zakładamy 0 dla elementów pozadiagonalnych
+                    full_metric[(i, j)] = 0 if i != j else 1
+
+        print("Final metric components:", len(full_metric))
+        print("Final parameters:", [str(p) for p in parametry])
+        print("Full metric:", full_metric)
 
         # Zbierz wszystkie parametry
         all_symbols = set()
-        for expr in metryka.values():
+        for expr in full_metric.values():
             all_symbols.update(expr.free_symbols)
         parametry = list(all_symbols - set(wspolrzedne))
 
-        print("Final metric components:", len(metryka))
-        print("Final parameters:", [str(p) for p in parametry])
-        print("Metric:", metryka)
-
-        return wspolrzedne, parametry, metryka
+        return wspolrzedne, parametry, full_metric
 
     except Exception as e:
         print(f"Error in wczytaj_metryke_z_tekstu: {str(e)}")
