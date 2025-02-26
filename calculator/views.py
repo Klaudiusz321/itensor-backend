@@ -13,6 +13,31 @@ import sympy as sp
 
 logger = logging.getLogger(__name__)
 
+def convert_sympy_obj(obj):
+    """Konwertuje obiekty Sympy do standardowych typów Pythona"""
+    if hasattr(obj, 'free_symbols') and obj.free_symbols:
+        # Jeśli wyrażenie zawiera symbole, zwróć jako string
+        return str(obj)
+    elif hasattr(obj, 'evalf'):
+        try:
+            # Spróbuj przekonwertować do float/int
+            value = float(obj.evalf())
+            if value.is_integer():
+                return int(value)
+            return value
+        except Exception:
+            # Jeśli nie można przekonwertować, zwróć jako string
+            return str(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_sympy_obj(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_sympy_obj(i) for i in obj]
+    elif isinstance(obj, sp.Matrix):
+        return [[convert_sympy_obj(obj[i,j]) for j in range(obj.cols)] 
+                for i in range(obj.rows)]
+    else:
+        return obj
+
 def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvature, wspolrzedne, parametry) -> dict:
     try:
         if not output_text:
@@ -67,7 +92,7 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             elif "Scalar curvature" in line:
                 current_section = 'scalar'
 
-        # Przygotowanie danych zgodnie z interfejsem MetricData
+        # Konwertuj wyniki przed zwróceniem
         result = {
             'metric': sections['metric'],
             'christoffel': sections['christoffel'],
@@ -77,18 +102,20 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'scalar': sections['scalar'],
             'coordinates': [str(coord) for coord in wspolrzedne],
             'parameters': [str(param) for param in parametry],
-            'metryka': {f"{i},{j}": str(g[i,j]) for i in range(len(wspolrzedne)) for j in range(len(wspolrzedne))},
-            'scalarCurvature': str(Scalar_Curvature),
+            'metryka': {f"{i},{j}": convert_sympy_obj(g[i,j]) 
+                       for i in range(len(wspolrzedne)) 
+                       for j in range(len(wspolrzedne))},
+            'scalarCurvature': convert_sympy_obj(Scalar_Curvature),
             'scalarCurvatureLatex': f"\\({sp.latex(Scalar_Curvature)}\\)",
             'christoffelLatex': latex_sections['christoffelLatex'],
             'riemannLatex': latex_sections['riemannLatex'],
             'ricciLatex': latex_sections['ricciLatex'],
             'einsteinLatex': latex_sections['einsteinLatex'],
             'outputText': output_text,
-            'g': g.tolist() if hasattr(g, 'tolist') else [[str(g[i,j]) for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
-            'Gamma': [[[str(Gamma[i][j][k]) for k in range(len(wspolrzedne))] for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
-            'R_abcd': [[[[str(R_abcd[i][j][k][l]) for l in range(len(wspolrzedne))] for k in range(len(wspolrzedne))] for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
-            'Ricci': Ricci.tolist() if hasattr(Ricci, 'tolist') else [[str(Ricci[i,j]) for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
+            'g': convert_sympy_obj(g),
+            'Gamma': convert_sympy_obj(Gamma),
+            'R_abcd': convert_sympy_obj(R_abcd),
+            'Ricci': convert_sympy_obj(Ricci),
             'success': True
         }
 
