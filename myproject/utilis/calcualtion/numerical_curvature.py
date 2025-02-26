@@ -1,10 +1,9 @@
 import numpy as np
 import sympy as sp
 from myproject.utilis.calcualtion.derivative import numeric_derivative, total_derivative
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from mpl_toolkits.mplot3d import Axes3D
-import io
-import base64
+import matplotlib.pyplot as plt
 
 def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=50):
     try:
@@ -61,30 +60,35 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
                 if k_symbol in Scalar_Curvature.free_symbols:
                     substitutions[k_symbol] = 1.0
 
+                print("\nPodstawienia przed obliczeniem:")
+                for k, v in substitutions.items():
+                    print(f"{k} -> {v}")
+
                 # Najpierw wykonujemy podstawienia
                 expr = Scalar_Curvature
+                print("\nWyrażenie początkowe:", expr)
                 
                 # Wykonujemy podstawienia i obliczamy pochodne
                 expr = expr.subs(substitutions)
-                expr = expr.doit()  # Wymuszamy obliczenie pochodnych
-                expr = sp.simplify(expr)  # Upraszczamy wyrażenie
+                print("Po podstawieniu:", expr)
                 
-                # Sprawdzamy czy wszystkie symbole zostały podstawione
-                remaining_symbols = expr.free_symbols
-                if remaining_symbols:
-                    print(f"Ostrzeżenie: Pozostały symbole: {remaining_symbols}")
-                    # Podstawiamy 1.0 za pozostałe symbole
-                    for sym in remaining_symbols:
-                        expr = expr.subs(sym, 1.0)
-
+                expr = expr.doit()  # Wymuszamy obliczenie pochodnych
+                print("Po doit():", expr)
+                
+                # Próbujemy uprościć
+                expr = sp.simplify(expr)
+                print("Po uproszczeniu:", expr)
+                
                 # Konwertujemy na wartość liczbową
                 numeric_expr = expr.evalf()
+                print("Po evalf():", numeric_expr)
 
                 if numeric_expr.is_number:
                     result = float(numeric_expr)
+                    print("Końcowy wynik:", result)
                     return result if np.isfinite(result) and abs(result) < 1e10 else 0.0
                 else:
-                    print(f"Wyrażenie nie jest liczbą: {numeric_expr}")
+                    print("Wyrażenie nie jest liczbą:", numeric_expr)
                     return 0.0
 
             except Exception as e:
@@ -141,37 +145,65 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
             print(f"Średnia: {np.mean(nonzero_values)}")
             print(f"Mediana: {np.median(nonzero_values)}")
 
-        # Generujemy wykres
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        
-        sc = ax.scatter(points[:, 0], points[:, 1], curvature_values,
-                       c=curvature_values, cmap='viridis')
-        plt.colorbar(sc, label='Curvature')
-        
-        ax.set_xlabel(str(wspolrzedne[0]))
-        ax.set_ylabel(str(wspolrzedne[1]))
-        ax.set_zlabel('Curvature')
-        plt.title("3D Wykres Krzywizny")
-
-        # Zapisujemy wykres do bufora
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight')
-        buf.seek(0)
-        
-        # Konwertujemy do base64
-        plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
-        
-        # Zamykamy wykres aby zwolnić pamięć
-        plt.close(fig)
-
         result = {
-            'plot': plot_data,
             'points': points.tolist(),
             'values': curvature_values.tolist(),
             'ranges': coord_ranges,
             'coordinates': [str(coord) for coord in wspolrzedne]
         }
+
+        def visualize_curvature(points, curvature_values, coordinates):
+            """Wizualizuje krzywiznę używając Plotly i Matplotlib"""
+            # Przekształcamy punkty na tablicę numpy
+            points = np.array(points)
+            curvature = np.array(curvature_values)
+
+            # 1. Plotly visualization
+            fig_plotly = go.Figure(data=[go.Scatter3d(
+                x=points[:, 0],
+                y=points[:, 1],
+                z=curvature,
+                mode='markers',
+                marker=dict(
+                    size=3,
+                    color=curvature,
+                    colorscale='Viridis',
+                    colorbar=dict(title='Curvature')
+                )
+            )])
+
+            fig_plotly.update_layout(
+                title="3D Wykres Krzywizny (Plotly)",
+                scene=dict(
+                    xaxis_title=coordinates[0],
+                    yaxis_title=coordinates[1],
+                    zaxis_title='Curvature'
+                )
+            )
+
+            # 2. Matplotlib visualization
+            fig_mpl = plt.figure(figsize=(10, 8))
+            ax = fig_mpl.add_subplot(111, projection='3d')
+            sc = ax.scatter(points[:, 0], points[:, 1], curvature, 
+                           c=curvature, cmap='viridis')
+            plt.colorbar(sc, label='Curvature')
+            ax.set_xlabel(coordinates[0])
+            ax.set_ylabel(coordinates[1])
+            ax.set_zlabel('Curvature')
+            plt.title("3D Wykres Krzywizny (Matplotlib)")
+
+            return fig_plotly, fig_mpl
+
+        # Generujemy wykresy
+        fig_plotly, fig_mpl = visualize_curvature(
+            points, 
+            curvature_values, 
+            result['coordinates']
+        )
+
+        # Dodajemy wykresy do wyniku
+        result['plotly_figure'] = fig_plotly
+        result['matplotlib_figure'] = fig_mpl
 
         return result
 

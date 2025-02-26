@@ -1,7 +1,7 @@
 from django.urls import path
-from .views import calculate, visualize_view
+from . import views
 
 urlpatterns = [
-    path('calculate/', calculate, name='calculate'),
-    path('visualize/', visualize_view, name='visualize'),
+    path('api/calculate', views.calculate_view, name='calculate'),
+    path('api/visualize', views.visualize_view, name='visualize')
 ]
