@@ -118,54 +118,42 @@ def compute_full_tensors(metric_text):
 @csrf_exempt
 @require_POST
 def visualize_view(request):
-    start_time = time.time()
     try:
-        logger.info("Starting visualization...")
-        
         data = json.loads(request.body)
         metric_text = data.get("metric_text")
         
-        # Sprawdź cache
-        cache_key = f"visualization_{hash(metric_text)}"
-        cached_result = cache.get(cache_key)
-        if cached_result:
-            return JsonResponse(cached_result)
-            
-        logger.info("Generating visualization...")
+        if not metric_text:
+            return JsonResponse({
+                'error': 'Missing metric_text'
+            }, status=400)
+
+        # Podstawowe obliczenia
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+
+        # Generowanie wykresu
         result = generate_numerical_curvature(
             Scalar_Curvature,
             wspolrzedne,
             parametry,
-            ranges=[[-2, 2]] * len(wspolrzedne),
-            points_per_dim=15
+            ranges=[[-2, 2]] * len(wspolrzedne),  # mniejszy zakres
+            points_per_dim=15  # mniej punktów
         )
 
         if not result:
-            logger.error("Failed to generate visualization")
-            return JsonResponse({'error': 'Visualization generation failed'}, status=500)
+            return JsonResponse({
+                'error': 'Error generating plot'
+            }, status=400)
 
-        logger.info("Visualization generated successfully")
-        
-        # Zapisz do cache
-        cache.set(cache_key, result, timeout=3600)
-        
-        # Po każdym głównym kroku
-        logger.info(f"Step X completed in {time.time() - start_time:.2f}s")
-        
-        # Jeśli przekroczono czas
-        if time.time() - start_time > 25:  # Heroku ma limit 30s
-            logger.error("Timeout approaching")
-            return JsonResponse({'error': 'Operation timeout'}, status=408)
-        
         return JsonResponse({
             'plot': result['plot'],
             'coordinates': result['coordinates']
         })
 
     except Exception as e:
-        logger.exception("Error in visualize_view")
-        return JsonResponse({'error': str(e)}, status=500)
+        print(f"Error: {e}")
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)
 
