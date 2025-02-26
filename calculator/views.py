@@ -118,14 +118,14 @@ def visualize_view(request):
         data = json.loads(request.body)
         metric_text = data.get("metric_text", "")
         
-        print(f"Otrzymano metric_text: {metric_text[:100]}...")
-        
         if not metric_text:
             return JsonResponse({
-                'error': 'Brak tekstu metryki',
-                'detail': 'Pole metric_text jest wymagane'
+                'error': 'Brak tekstu metryki'
             }, status=400)
 
+        # Dodaj więcej logowania
+        print(f"Przetwarzam metrykę: {metric_text}")
+        
         # 1. Obliczenia podstawowe
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
@@ -185,8 +185,15 @@ def visualize_view(request):
         print(f"Zakres wartości: {min(numerical_data['values'])} do {max(numerical_data['values'])}")
         return JsonResponse(response_data)
         
+    except json.JSONDecodeError as e:
+        print(f"Błąd dekodowania JSON: {e}")
+        return JsonResponse({
+            'error': 'Nieprawidłowy format JSON'
+        }, status=400)
     except Exception as e:
-        print(f"Error in visualize_view: {str(e)}")  # to pojawi się w logach Heroku
+        print(f"Nieoczekiwany błąd: {e}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({
             'error': str(e)
         }, status=500)

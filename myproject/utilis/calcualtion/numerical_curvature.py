@@ -4,6 +4,8 @@ from myproject.utilis.calcualtion.derivative import numeric_derivative, total_de
 import plotly.graph_objects as go
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Ustaw backend niewymagający GUI
 
 def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=50):
     try:
