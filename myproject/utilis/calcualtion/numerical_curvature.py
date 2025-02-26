@@ -8,9 +8,25 @@ import matplotlib
 matplotlib.use('Agg')  # Ustaw backend niewymagający GUI
 import io
 import base64
+import psutil
+import os
 
-def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=15):
+def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=10):
     try:
+        # Sprawdź dostępną pamięć
+        memory = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+        print(f"Memory usage: {memory}MB")
+        
+        if memory > 500:  # jeśli używamy więcej niż 500MB
+            points_per_dim = 5  # zmniejsz liczbę punktów
+        
+        # Ogranicz siatkę do 2D
+        if len(wspolrzedne) > 2:
+            wspolrzedne = wspolrzedne[:2]
+            
+        # Zmniejsz zakres
+        ranges = [[-1, 1]] * len(wspolrzedne)
+        
         print("\nAnaliza wejścia:")
         print("Scalar_Curvature:", Scalar_Curvature)
         print("Współrzędne:", [str(w) for w in wspolrzedne])

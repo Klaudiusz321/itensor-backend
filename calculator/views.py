@@ -6,6 +6,8 @@ import json
 from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output, generate_numerical_curvature
 from myproject.utilis.calcualtion.derivative import numeric_derivative, partial_derivative, total_derivative
 import logging
+from django.core.cache import cache
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -116,15 +118,19 @@ def compute_full_tensors(metric_text):
 @csrf_exempt
 @require_POST
 def visualize_view(request):
+    start_time = time.time()
     try:
-        logger.info("Starting visualization request")
+        logger.info("Starting visualization...")
+        
         data = json.loads(request.body)
         metric_text = data.get("metric_text")
         
-        if not metric_text:
-            logger.error("Missing metric_text in request")
-            return JsonResponse({'error': 'Missing metric_text'}, status=400)
-
+        # Sprawdź cache
+        cache_key = f"visualization_{hash(metric_text)}"
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            return JsonResponse(cached_result)
+            
         logger.info("Generating visualization...")
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
@@ -142,6 +148,18 @@ def visualize_view(request):
             return JsonResponse({'error': 'Visualization generation failed'}, status=500)
 
         logger.info("Visualization generated successfully")
+        
+        # Zapisz do cache
+        cache.set(cache_key, result, timeout=3600)
+        
+        # Po każdym głównym kroku
+        logger.info(f"Step X completed in {time.time() - start_time:.2f}s")
+        
+        # Jeśli przekroczono czas
+        if time.time() - start_time > 25:  # Heroku ma limit 30s
+            logger.error("Timeout approaching")
+            return JsonResponse({'error': 'Operation timeout'}, status=408)
+        
         return JsonResponse({
             'plot': result['plot'],
             'coordinates': result['coordinates']
