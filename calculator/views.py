@@ -5,6 +5,9 @@ from django.views.decorators.http import require_POST
 import json
 from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output, generate_numerical_curvature
 from myproject.utilis.calcualtion.derivative import numeric_derivative, partial_derivative, total_derivative
+import logging
+
+logger = logging.getLogger(__name__)
 
 def parse_metric_output(output_text: str) -> dict:
     sections = {
@@ -114,41 +117,37 @@ def compute_full_tensors(metric_text):
 @require_POST
 def visualize_view(request):
     try:
+        logger.info("Starting visualization request")
         data = json.loads(request.body)
         metric_text = data.get("metric_text")
         
         if not metric_text:
-            return JsonResponse({
-                'error': 'Missing metric_text'
-            }, status=400)
+            logger.error("Missing metric_text in request")
+            return JsonResponse({'error': 'Missing metric_text'}, status=400)
 
-        # Podstawowe obliczenia
+        logger.info("Generating visualization...")
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-
-        # Generowanie wykresu
         result = generate_numerical_curvature(
             Scalar_Curvature,
             wspolrzedne,
             parametry,
-            ranges=[[-2, 2]] * len(wspolrzedne),  # mniejszy zakres
-            points_per_dim=15  # mniej punktów
+            ranges=[[-2, 2]] * len(wspolrzedne),
+            points_per_dim=15
         )
 
         if not result:
-            return JsonResponse({
-                'error': 'Error generating plot'
-            }, status=400)
+            logger.error("Failed to generate visualization")
+            return JsonResponse({'error': 'Visualization generation failed'}, status=500)
 
+        logger.info("Visualization generated successfully")
         return JsonResponse({
             'plot': result['plot'],
             'coordinates': result['coordinates']
         })
 
     except Exception as e:
-        print(f"Error: {e}")
-        return JsonResponse({
-            'error': str(e)
-        }, status=500)
+        logger.exception("Error in visualize_view")
+        return JsonResponse({'error': str(e)}, status=500)
 

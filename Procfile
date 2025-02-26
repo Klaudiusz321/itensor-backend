@@ -1,1 +1,1 @@
-web: gunicorn myproject.wsgi --log-file -
+web: gunicorn myproject.wsgi --timeout 120 --workers 3 --threads 3 --max-requests 1200 --log-file -

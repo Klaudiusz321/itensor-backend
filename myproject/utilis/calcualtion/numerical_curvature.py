@@ -9,7 +9,7 @@ matplotlib.use('Agg')  # Ustaw backend niewymagający GUI
 import io
 import base64
 
-def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=20):
+def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=15):
     try:
         print("\nAnaliza wejścia:")
         print("Scalar_Curvature:", Scalar_Curvature)
@@ -149,12 +149,16 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
             print(f"Średnia: {np.mean(nonzero_values)}")
             print(f"Mediana: {np.median(nonzero_values)}")
 
-        # Optymalizacja generowania wykresu
-        fig = plt.figure(figsize=(10, 6), dpi=100)  # mniejszy rozmiar i rozdzielczość
+        # Optymalizacja pamięci
+        plt.clf()  # Wyczyść poprzednie wykresy
+        plt.close('all')  # Zamknij wszystkie figury
+        
+        # Mniejszy wykres
+        fig = plt.figure(figsize=(8, 6), dpi=80)
         ax = fig.add_subplot(111, projection='3d')
         
-        # Używamy mniejszej liczby punktów dla wykresu
-        max_points = 1000
+        # Ograniczamy liczbę punktów
+        max_points = 500  # jeszcze mniej punktów
         if len(points) > max_points:
             step = len(points) // max_points
             plot_points = points[::step]
@@ -168,31 +172,29 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
                            plot_values,
                            c=plot_values,
                            cmap='viridis',
-                           s=30)  # mniejsze punkty
+                           s=20)  # jeszcze mniejsze punkty
         
-        plt.colorbar(scatter, label='Curvature')
-        ax.set_xlabel(str(wspolrzedne[0]))
-        ax.set_ylabel(str(wspolrzedne[1]))
-        ax.set_zlabel('Curvature')
-        plt.title("3D Visualization of Curvature")
-
-        # Optymalizacja zapisywania do base64
+        # Optymalizacja zapisu
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100, 
-                   optimize=True, quality=85)  # kompresja JPG
+        plt.savefig(buf, format='png', 
+                   bbox_inches='tight', 
+                   dpi=80,
+                   optimize=True, 
+                   quality=70)  # większa kompresja
         buf.seek(0)
         plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
+        
+        # Czyszczenie pamięci
         plt.close(fig)
+        buf.close()
 
-        result = {
-            'plot': plot_data,  # tylko wykres
+        return {
+            'plot': plot_data,
             'coordinates': [str(coord) for coord in wspolrzedne]
         }
 
-        return result
-
     except Exception as e:
-        print(f"\nBŁĄD w generate_numerical_curvature: {e}")
+        print(f"Error in generate_numerical_curvature: {e}")
         import traceback
         traceback.print_exc()
         return None

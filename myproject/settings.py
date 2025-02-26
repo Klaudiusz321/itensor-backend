@@ -170,7 +170,31 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # Zwiększ timeout dla requestów
-VISUALIZE_TIMEOUT = 60  # sekundy
+VISUALIZE_TIMEOUT = 300  # 5 minut
 
 # Dodaj konfigurację dla dużych odpowiedzi JSON
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
+
+# Dodaj konfigurację CORS
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
+
+# Dodaj konfigurację dla Whitenoise
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Dodaj debug logging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+    },
+}
