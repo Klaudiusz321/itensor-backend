@@ -115,6 +115,9 @@ def compute_full_tensors(metric_text):
 def visualize_view(request):
     try:
         print("\n=== Rozpoczynam visualize_view ===")
+        print("Request headers:", request.headers)
+        print("Request body:", request.body.decode('utf-8'))
+        
         data = json.loads(request.body)
         metric_text = data.get("metric_text", "")
         
