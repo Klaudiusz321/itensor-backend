@@ -168,3 +168,9 @@ CSRF_TRUSTED_ORIGINS = [
     "https://calculator1-fc4166db17b2.herokuapp.com",
     "https://itensor.online",
 ]
+
+# Zwiększ timeout dla requestów
+VISUALIZE_TIMEOUT = 60  # sekundy
+
+# Dodaj konfigurację dla dużych odpowiedzi JSON
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10MB

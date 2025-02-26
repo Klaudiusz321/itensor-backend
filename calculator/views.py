@@ -114,70 +114,40 @@ def compute_full_tensors(metric_text):
 @require_POST
 def visualize_view(request):
     try:
-        print("\n=== Rozpoczynam visualize_view ===")
-        print("Request headers:", dict(request.headers))
-        print("Content-Type:", request.headers.get('content-type'))
-        
-        body = request.body.decode('utf-8')
-        print("Raw request body:", body)
-        
-        try:
-            data = json.loads(body)
-            print("Parsed JSON data:", data)
-        except json.JSONDecodeError as e:
-            print(f"JSON decode error: {e}")
-            return JsonResponse({
-                'error': 'Invalid JSON format',
-                'details': str(e)
-            }, status=400)
-
+        data = json.loads(request.body)
         metric_text = data.get("metric_text")
+        
         if not metric_text:
-            print("Missing metric_text in request")
             return JsonResponse({
-                'error': 'Missing metric_text',
-                'received_data': data
+                'error': 'Missing metric_text'
             }, status=400)
 
-        print(f"Processing metric_text: {metric_text}")
-        
-        # Obliczenia...
+        # Podstawowe obliczenia
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
         n = len(wspolrzedne)
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-        g_inv = g.inv()
-        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
 
-        # Generowanie danych numerycznych i wykresu
-        numerical_data = generate_numerical_curvature(
+        # Generowanie wykresu
+        result = generate_numerical_curvature(
             Scalar_Curvature,
             wspolrzedne,
             parametry,
-            ranges=[[-5, 5]] * len(wspolrzedne),
-            points_per_dim=20
+            ranges=[[-2, 2]] * len(wspolrzedne),  # mniejszy zakres
+            points_per_dim=15  # mniej punktów
         )
 
-        if not numerical_data:
+        if not result:
             return JsonResponse({
-                'error': 'Błąd generowania wykresu'
+                'error': 'Error generating plot'
             }, status=400)
 
-        # Zwracamy dane wraz z wykresem
-        response_data = {
-            'plot': numerical_data['plot'],  # base64 string z wykresem
-            'metadata': {
-                'dimensions': len(wspolrzedne),
-                'coordinates': [str(coord) for coord in wspolrzedne],
-                'parameters': [str(param) for param in parametry]
-            }
-        }
-
-        return JsonResponse(response_data)
+        return JsonResponse({
+            'plot': result['plot'],
+            'coordinates': result['coordinates']
+        })
 
     except Exception as e:
-        print(f"Nieoczekiwany błąd: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error: {e}")
         return JsonResponse({
             'error': str(e)
         }, status=500)

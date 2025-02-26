@@ -9,7 +9,7 @@ matplotlib.use('Agg')  # Ustaw backend niewymagający GUI
 import io
 import base64
 
-def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=50):
+def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=20):
     try:
         print("\nAnaliza wejścia:")
         print("Scalar_Curvature:", Scalar_Curvature)
@@ -149,36 +149,44 @@ def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, range
             print(f"Średnia: {np.mean(nonzero_values)}")
             print(f"Mediana: {np.median(nonzero_values)}")
 
-        # Po obliczeniu wartości krzywizny, generujemy wykres
-        fig = plt.figure(figsize=(12, 8))
+        # Optymalizacja generowania wykresu
+        fig = plt.figure(figsize=(10, 6), dpi=100)  # mniejszy rozmiar i rozdzielczość
         ax = fig.add_subplot(111, projection='3d')
         
-        # Rysujemy punkty w przestrzeni 3D
-        scatter = ax.scatter(points[:, 0], points[:, 1], curvature_values,
-                           c=curvature_values,
+        # Używamy mniejszej liczby punktów dla wykresu
+        max_points = 1000
+        if len(points) > max_points:
+            step = len(points) // max_points
+            plot_points = points[::step]
+            plot_values = curvature_values[::step]
+        else:
+            plot_points = points
+            plot_values = curvature_values
+
+        scatter = ax.scatter(plot_points[:, 0], 
+                           plot_points[:, 1], 
+                           plot_values,
+                           c=plot_values,
                            cmap='viridis',
-                           s=50)  # rozmiar punktów
+                           s=30)  # mniejsze punkty
         
         plt.colorbar(scatter, label='Curvature')
-        
         ax.set_xlabel(str(wspolrzedne[0]))
         ax.set_ylabel(str(wspolrzedne[1]))
         ax.set_zlabel('Curvature')
         plt.title("3D Visualization of Curvature")
-        
-        # Konwertujemy wykres do base64
+
+        # Optymalizacja zapisywania do base64
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100, 
+                   optimize=True, quality=85)  # kompresja JPG
         buf.seek(0)
         plot_data = base64.b64encode(buf.getvalue()).decode('utf-8')
-        plt.close(fig)  # Zamykamy wykres
+        plt.close(fig)
 
         result = {
-            'points': points.tolist(),
-            'values': curvature_values.tolist(),
-            'ranges': coord_ranges,
-            'coordinates': [str(coord) for coord in wspolrzedne],
-            'plot': plot_data  # Dodajemy zakodowany wykres
+            'plot': plot_data,  # tylko wykres
+            'coordinates': [str(coord) for coord in wspolrzedne]
         }
 
         return result
