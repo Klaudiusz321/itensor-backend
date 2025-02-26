@@ -4,48 +4,97 @@ from django.views.decorators.http import require_POST
 import json
 import logging
 from myproject.utilis.calcualtion import oblicz_tensory, compute_einstein_tensor, wczytaj_metryke_z_tekstu, generate_output
+import sympy as sp
 
 logger = logging.getLogger(__name__)
 
-def parse_metric_output(output_text: str) -> dict:
-    sections = {
-        'metric': [],
-        'christoffel': [],
-        'riemann': [],
-        'ricci': [],
-        'einstein': [],
-        'scalar': []
-    }
-    
-    current_section = None
-    lines = output_text.split('\n')
-    
-    for line in lines:
-        if "Metric tensor components" in line:
-            current_section = 'metric'
-        elif "Christoffel symbols" in line:
-            current_section = 'christoffel'
-        elif "Riemann tensor" in line:
-            current_section = 'riemann'
-        elif "Ricci tensor" in line:
-            current_section = 'ricci'
-        elif "Einstein tensor" in line:
-            current_section = 'einstein'
-        elif "Scalar curvature" in line:
-            current_section = 'scalar'
-        elif line.strip() and current_section:
-            if '\\(' in line:
-                sections[current_section].append(line.strip())
+def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvature, wspolrzedne, parametry) -> dict:
+    try:
+        if not output_text:
+            raise ValueError("Empty output text")
+            
+        sections = {
+            'metric': [],
+            'christoffel': [],
+            'riemann': [],
+            'ricci': [],
+            'einstein': [],
+            'scalar': []
+        }
+        
+        # Parsowanie sekcji z output_text
+        current_section = None
+        lines = output_text.split('\n')
+        
+        latex_sections = {
+            'christoffelLatex': [],
+            'riemannLatex': [],
+            'ricciLatex': [],
+            'einsteinLatex': []
+        }
+        
+        for line in lines:
+            if '\\(' in line:  # Linia zawiera LaTeX
+                latex_content = line[line.find('\\('):line.find('\\)')+2]
+                if current_section == 'christoffel':
+                    latex_sections['christoffelLatex'].append(latex_content)
+                elif current_section == 'riemann':
+                    latex_sections['riemannLatex'].append(latex_content)
+                elif current_section == 'ricci':
+                    latex_sections['ricciLatex'].append(latex_content)
+                elif current_section == 'einstein':
+                    latex_sections['einsteinLatex'].append(latex_content)
+                
+                if current_section:
+                    sections[current_section].append(line.strip())
+            
+            # Aktualizacja current_section
+            if "Metric tensor components" in line:
+                current_section = 'metric'
+            elif "Christoffel symbols" in line:
+                current_section = 'christoffel'
+            elif "Riemann tensor" in line:
+                current_section = 'riemann'
+            elif "Ricci tensor" in line:
+                current_section = 'ricci'
+            elif "Einstein tensor" in line:
+                current_section = 'einstein'
+            elif "Scalar curvature" in line:
+                current_section = 'scalar'
 
-    return {
-        'metric': sections['metric'],
-        'christoffel': sections['christoffel'],
-        'riemann': sections['riemann'],
-        'ricci': sections['ricci'],
-        'einstein': sections['einstein'],
-        'scalar': sections['scalar'],
-        'success': True
-    }
+        # Przygotowanie danych zgodnie z interfejsem MetricData
+        result = {
+            'metric': sections['metric'],
+            'christoffel': sections['christoffel'],
+            'riemann': sections['riemann'],
+            'ricci': sections['ricci'],
+            'einstein': sections['einstein'],
+            'scalar': sections['scalar'],
+            'coordinates': [str(coord) for coord in wspolrzedne],
+            'parameters': [str(param) for param in parametry],
+            'metryka': {f"{i},{j}": str(g[i,j]) for i in range(len(wspolrzedne)) for j in range(len(wspolrzedne))},
+            'scalarCurvature': str(Scalar_Curvature),
+            'scalarCurvatureLatex': f"\\({sp.latex(Scalar_Curvature)}\\)",
+            'christoffelLatex': latex_sections['christoffelLatex'],
+            'riemannLatex': latex_sections['riemannLatex'],
+            'ricciLatex': latex_sections['ricciLatex'],
+            'einsteinLatex': latex_sections['einsteinLatex'],
+            'outputText': output_text,
+            'g': g.tolist() if hasattr(g, 'tolist') else [[str(g[i,j]) for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
+            'Gamma': [[[str(Gamma[i][j][k]) for k in range(len(wspolrzedne))] for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
+            'R_abcd': [[[[str(R_abcd[i][j][k][l]) for l in range(len(wspolrzedne))] for k in range(len(wspolrzedne))] for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
+            'Ricci': Ricci.tolist() if hasattr(Ricci, 'tolist') else [[str(Ricci[i,j]) for j in range(len(wspolrzedne))] for i in range(len(wspolrzedne))],
+            'success': True
+        }
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Output parsing error: {e}", exc_info=True)
+        return {
+            'error': 'Output parsing error',
+            'details': str(e)
+        }
 
 @csrf_exempt
 @require_POST
@@ -115,7 +164,16 @@ def calculate_view(request):
         # 5. Generowanie wyniku
         try:
             output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-            result = parse_metric_output(output)
+            result = parse_metric_output(
+                output, 
+                g, 
+                Gamma, 
+                R_abcd, 
+                Ricci, 
+                Scalar_Curvature,
+                wspolrzedne,
+                parametry
+            )
             logger.info("Output generated successfully")
             return JsonResponse(result)
         except Exception as e:

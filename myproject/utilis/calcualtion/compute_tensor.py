@@ -3,52 +3,61 @@ from ..simplification import custom_simplify
 from .indexes import lower_indices
 
 def oblicz_tensory(wspolrzedne, metryka):
-    t = [s for s in wspolrzedne if str(s) == 't'][0] if any(str(s) == 't' for s in wspolrzedne) else sp.Symbol('t')
-    a = sp.Function('a')(t)
-    n = len(wspolrzedne)
+    try:
+        # Sprawdź czy mamy symbol czasu
+        t = [s for s in wspolrzedne if str(s) == 't'][0] if any(str(s) == 't' for s in wspolrzedne) else sp.Symbol('t')
+        a = sp.Function('a')(t)  # To może powodować problemy jeśli nie ma 't' w metryce
+        
+        # Sprawdź czy metryka jest kompletna
+        n = len(wspolrzedne)
+        if len(metryka) < n*n:
+            raise ValueError(f"Incomplete metric tensor: got {len(metryka)} components, expected {n*n}")
 
-    g = sp.Matrix(n, n, lambda i, j: metryka.get((i, j), metryka.get((j, i), 0)))
-    g_inv = g.inv()
+        g = sp.Matrix(n, n, lambda i, j: metryka.get((i, j), metryka.get((j, i), 0)))
+        g_inv = g.inv()
 
-    Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    for sigma in range(n):
-        for mu in range(n):
-            for nu in range(n):
-                Gamma_sum = 0
-                for lam in range(n):
-                    partial_mu  = sp.diff(g[nu, lam], wspolrzedne[mu])
-                    partial_nu  = sp.diff(g[mu, lam], wspolrzedne[nu])
-                    partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
-                    Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
-                Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)
-
-    Riemann = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    for rho in range(n):
+        Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
         for sigma in range(n):
             for mu in range(n):
                 for nu in range(n):
-                    term1 = sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu])
-                    term2 = sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu])
-                    sum_term = 0
+                    Gamma_sum = 0
                     for lam in range(n):
-                        sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma]
-                                     - Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
-                    Riemann[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
+                        partial_mu  = sp.diff(g[nu, lam], wspolrzedne[mu])
+                        partial_nu  = sp.diff(g[mu, lam], wspolrzedne[nu])
+                        partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
+                        Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
+                    Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)
 
-    R_abcd = lower_indices(Riemann, g, n)
+        Riemann = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        for rho in range(n):
+            for sigma in range(n):
+                for mu in range(n):
+                    for nu in range(n):
+                        term1 = sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu])
+                        term2 = sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu])
+                        sum_term = 0
+                        for lam in range(n):
+                            sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma]
+                                         - Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
+                        Riemann[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
 
-    Ricci = sp.zeros(n, n)
-    for mu in range(n):
-        for nu in range(n):
-            Ricci[mu, nu] = custom_simplify(sum(Riemann[rho][mu][rho][nu] for rho in range(n)))
-            Ricci[mu, nu] = custom_simplify(Ricci[mu, nu])
+        R_abcd = lower_indices(Riemann, g, n)
 
-    Scalar_Curvature = custom_simplify(sum(g_inv[mu, nu] * Ricci[mu, nu] for mu in range(n) for nu in range(n)))
-    Scalar_Curvature = custom_simplify(Scalar_Curvature)
+        Ricci = sp.zeros(n, n)
+        for mu in range(n):
+            for nu in range(n):
+                Ricci[mu, nu] = custom_simplify(sum(Riemann[rho][mu][rho][nu] for rho in range(n)))
+                Ricci[mu, nu] = custom_simplify(Ricci[mu, nu])
 
-    print("Final expression for lambdify:", Scalar_Curvature)
+        Scalar_Curvature = custom_simplify(sum(g_inv[mu, nu] * Ricci[mu, nu] for mu in range(n) for nu in range(n)))
+        Scalar_Curvature = custom_simplify(Scalar_Curvature)
 
-    return g, Gamma, R_abcd, Ricci, Scalar_Curvature
+        print("Final expression for lambdify:", Scalar_Curvature)
+
+        return g, Gamma, R_abcd, Ricci, Scalar_Curvature
+    except Exception as e:
+        print(f"Error in oblicz_tensory: {e}")
+        return None
 
 def compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n):
     G_lower = sp.zeros(n, n)  
