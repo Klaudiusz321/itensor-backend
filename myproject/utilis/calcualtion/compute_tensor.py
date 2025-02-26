@@ -4,31 +4,55 @@ from .indexes import lower_indices
 
 def oblicz_tensory(wspolrzedne, metryka):
     try:
+        print("\nStarting tensor calculations...")
+        n = len(wspolrzedne)
+        print(f"Dimension: {n}")
+
         # Sprawdź czy mamy symbol czasu
         t = [s for s in wspolrzedne if str(s) == 't'][0] if any(str(s) == 't' for s in wspolrzedne) else sp.Symbol('t')
-        a = sp.Function('a')(t)  # To może powodować problemy jeśli nie ma 't' w metryce
         
-        # Sprawdź czy metryka jest kompletna
-        n = len(wspolrzedne)
-        if len(metryka) < n*n:
-            raise ValueError(f"Incomplete metric tensor: got {len(metryka)} components, expected {n*n}")
+        # Inicjalizacja metryki jako macierzy zerowej
+        g = sp.zeros(n, n)
+        
+        # Wypełnij metrykę
+        for i in range(n):
+            for j in range(n):
+                if (i, j) in metryka:
+                    g[i, j] = metryka[(i, j)]
+                elif (j, i) in metryka:
+                    g[i, j] = metryka[(j, i)]
+                else:
+                    # Dla metryki diagonalnej, zakładamy 0 dla elementów pozadiagonalnych
+                    g[i, j] = 0 if i != j else 1
 
-        g = sp.Matrix(n, n, lambda i, j: metryka.get((i, j), metryka.get((j, i), 0)))
+        print("Metric tensor:")
+        print(g)
+
+        # Sprawdź czy macierz jest odwracalna
+        if g.det() == 0:
+            raise ValueError("Metric tensor is singular (determinant = 0)")
+
         g_inv = g.inv()
+        print("Inverse metric tensor:")
+        print(g_inv)
 
+        # Oblicz symbole Christoffela
         Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
         for sigma in range(n):
             for mu in range(n):
                 for nu in range(n):
-                    Gamma_sum = 0
+                    sum_term = 0
                     for lam in range(n):
-                        partial_mu  = sp.diff(g[nu, lam], wspolrzedne[mu])
-                        partial_nu  = sp.diff(g[mu, lam], wspolrzedne[nu])
+                        partial_mu = sp.diff(g[nu, lam], wspolrzedne[mu])
+                        partial_nu = sp.diff(g[mu, lam], wspolrzedne[nu])
                         partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
-                        Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
-                    Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)
+                        sum_term += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
+                    Gamma[sigma][mu][nu] = sp.simplify(sp.Rational(1, 2) * sum_term)
 
-        Riemann = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        print("Christoffel symbols calculated")
+
+        # Oblicz tensor Riemanna
+        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
         for rho in range(n):
             for sigma in range(n):
                 for mu in range(n):
@@ -37,24 +61,34 @@ def oblicz_tensory(wspolrzedne, metryka):
                         term2 = sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu])
                         sum_term = 0
                         for lam in range(n):
-                            sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma]
-                                         - Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
-                        Riemann[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
+                            sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma] -
+                                       Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
+                        R_abcd[rho][sigma][mu][nu] = sp.simplify(term1 - term2 + sum_term)
 
-        R_abcd = lower_indices(Riemann, g, n)
+        print("Riemann tensor calculated")
 
+        # Oblicz tensor Ricciego
         Ricci = sp.zeros(n, n)
         for mu in range(n):
             for nu in range(n):
-                Ricci[mu, nu] = custom_simplify(sum(Riemann[rho][mu][rho][nu] for rho in range(n)))
-                Ricci[mu, nu] = custom_simplify(Ricci[mu, nu])
+                sum_term = 0
+                for rho in range(n):
+                    sum_term += R_abcd[rho][mu][rho][nu]
+                Ricci[mu, nu] = sp.simplify(sum_term)
 
-        Scalar_Curvature = custom_simplify(sum(g_inv[mu, nu] * Ricci[mu, nu] for mu in range(n) for nu in range(n)))
-        Scalar_Curvature = custom_simplify(Scalar_Curvature)
+        print("Ricci tensor calculated")
 
-        print("Final expression for lambdify:", Scalar_Curvature)
+        # Oblicz skalar krzywizny
+        Scalar_Curvature = 0
+        for mu in range(n):
+            for nu in range(n):
+                Scalar_Curvature += g_inv[mu, nu] * Ricci[mu, nu]
+        Scalar_Curvature = sp.simplify(Scalar_Curvature)
+
+        print("Scalar curvature calculated:", Scalar_Curvature)
 
         return g, Gamma, R_abcd, Ricci, Scalar_Curvature
+
     except Exception as e:
         print(f"Error in oblicz_tensory: {e}")
         return None
