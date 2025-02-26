@@ -55,36 +55,83 @@ def parse_metric_output(output_text: str) -> dict:
 @csrf_exempt
 @require_POST
 def calculate_view(request):
-    """
-    Endpoint dla obliczeń symbolicznych (wzory LaTeX)
-    """
     try:
-        data = json.loads(request.body)
-        metric_text = data.get('metric_text')
+        print("\n=== Starting calculate_view ===")
         
-        if not metric_text:
+        # 1. Sprawdź request
+        print("Headers:", dict(request.headers))
+        body = request.body.decode('utf-8')
+        print("Raw body:", body)
+        
+        # 2. Parsuj JSON
+        try:
+            data = json.loads(body)
+            print("Parsed data:", data)
+        except json.JSONDecodeError as e:
+            print("JSON decode error:", e)
             return JsonResponse({
-                'error': 'Brak tekstu metryki',
-                'detail': 'Pole metric_text jest wymagane'
+                'error': 'Invalid JSON format',
+                'details': str(e)
             }, status=400)
 
-        # Obliczenia symboliczne
-        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-        n = len(wspolrzedne)
-        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-        g_inv = g.inv()
-        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        # 3. Sprawdź metric_text
+        metric_text = data.get('metric_text')
+        if not metric_text:
+            print("Missing metric_text")
+            return JsonResponse({
+                'error': 'Missing metric_text'
+            }, status=400)
         
-        # Generowanie wyniku symbolicznego
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        return JsonResponse(parse_metric_output(output))
-        
+        print("Received metric_text:", metric_text)
+
+        # 4. Parsuj metrykę
+        try:
+            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+            print("Parsed coordinates:", [str(w) for w in wspolrzedne])
+            print("Parsed parameters:", [str(p) for p in parametry])
+            print("Parsed metric:", metryka)
+        except Exception as e:
+            print("Metric parsing error:", e)
+            return JsonResponse({
+                'error': 'Invalid metric format',
+                'details': str(e)
+            }, status=400)
+
+        # 5. Oblicz tensory
+        try:
+            n = len(wspolrzedne)
+            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+            g_inv = g.inv()
+            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        except Exception as e:
+            print("Tensor calculation error:", e)
+            return JsonResponse({
+                'error': 'Calculation error',
+                'details': str(e)
+            }, status=400)
+
+        # 6. Generuj output
+        try:
+            output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+            result = parse_metric_output(output)
+            print("Generated output successfully")
+        except Exception as e:
+            print("Output generation error:", e)
+            return JsonResponse({
+                'error': 'Output generation error',
+                'details': str(e)
+            }, status=400)
+
+        return JsonResponse(result)
+
     except Exception as e:
-        print("Błąd:", str(e))
+        print("Unexpected error:", e)
+        import traceback
+        traceback.print_exc()
         return JsonResponse({
-            'error': 'Błąd serwera',
-            'detail': str(e)
-        }, status=400)
+            'error': 'Server error',
+            'details': str(e)
+        }, status=500)
 
 def compute_full_tensors(metric_text):
     """
