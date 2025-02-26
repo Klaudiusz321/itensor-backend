@@ -166,5 +166,5 @@ CORS_ALLOW_HEADERS = [
 # Dodaj te ustawienia
 CSRF_TRUSTED_ORIGINS = [
     "https://calculator1-fc4166db17b2.herokuapp.com",
-    "https://tensor-calculator.netlify.app",
+    "https://itensor.online",
 ]
