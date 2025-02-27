@@ -83,6 +83,48 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             elif "Scalar curvature" in line:
                 current_section = 'scalar'
 
+        # Filtrowanie niezerowych komponentów metryki
+        n = len(wspolrzedne)
+        metryka_dict = {}
+        for i in range(n):
+            for j in range(n):
+                val = convert_sympy_obj(g[i,j])
+                if val != 0 and val != "0":
+                    metryka_dict[f"{i},{j}"] = val
+
+        # Filtrowanie niezerowych komponentów Gamma
+        gamma_nonzero = []
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    val = convert_sympy_obj(Gamma[i][j][k])
+                    if val != 0 and val != "0":
+                        gamma_nonzero.append({
+                            'indices': [i,j,k],
+                            'value': val
+                        })
+
+        # Filtrowanie niezerowych komponentów tensora Riemanna
+        riemann_nonzero = []
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    for l in range(n):
+                        val = convert_sympy_obj(R_abcd[i][j][k][l])
+                        if val != 0 and val != "0":
+                            riemann_nonzero.append({
+                                'indices': [i,j,k,l],
+                                'value': val
+                            })
+
+        # Filtrowanie niezerowych komponentów tensora Ricciego
+        ricci_nonzero = {}
+        for i in range(n):
+            for j in range(n):
+                val = convert_sympy_obj(Ricci[i,j])
+                if val != 0 and val != "0":
+                    ricci_nonzero[f"{i},{j}"] = val
+
         result = {
             'metric': sections['metric'],
             'christoffel': sections['christoffel'],
@@ -92,9 +134,7 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'scalar': sections['scalar'],
             'coordinates': [str(coord) for coord in wspolrzedne],
             'parameters': [str(param) for param in parametry],
-            'metryka': {f"{i},{j}": convert_sympy_obj(g[i,j]) 
-                       for i in range(len(wspolrzedne)) 
-                       for j in range(len(wspolrzedne))},
+            'metryka': metryka_dict,
             'scalarCurvature': convert_sympy_obj(Scalar_Curvature),
             'scalarCurvatureLatex': f"\\({sp.latex(Scalar_Curvature)}\\)",
             'christoffelLatex': latex_sections['christoffelLatex'],
@@ -102,10 +142,10 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'ricciLatex': latex_sections['ricciLatex'],
             'einsteinLatex': latex_sections['einsteinLatex'],
             'outputText': output_text,
-            'g': convert_sympy_obj(g),
-            'Gamma': convert_sympy_obj(Gamma),
-            'R_abcd': convert_sympy_obj(R_abcd),
-            'Ricci': convert_sympy_obj(Ricci),
+            'g': metryka_dict,
+            'Gamma': gamma_nonzero,
+            'R_abcd': riemann_nonzero,
+            'Ricci': ricci_nonzero,
             'success': True
         }
 
