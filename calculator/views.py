@@ -13,7 +13,13 @@ import sympy as sp
 logger = logging.getLogger(__name__)
 
 def convert_sympy_obj(obj):
-    if hasattr(obj, 'free_symbols') and obj.free_symbols:
+    if isinstance(obj, (list, tuple)):
+        return [convert_sympy_obj(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_sympy_obj(v) for k, v in obj.items()}
+    elif hasattr(obj, 'tolist'):
+        return obj.tolist()
+    elif hasattr(obj, 'free_symbols'):
         return str(obj)
     elif hasattr(obj, 'evalf'):
         try:
@@ -21,7 +27,7 @@ def convert_sympy_obj(obj):
             if value.is_integer():
                 return int(value)
             return value
-        except Exception:
+        except:
             return str(obj)
     else:
         return str(obj)
@@ -57,7 +63,13 @@ def calculate_view(request):
             g_inv = g.inv()
             G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
             
-            # Przygotuj wynik w formacie zgodnym z frontendem
+            # Konwertuj wszystkie tensory na format JSON
+            g_list = convert_sympy_obj(g)
+            Gamma_list = convert_sympy_obj(Gamma)
+            R_abcd_list = convert_sympy_obj(R_abcd)
+            Ricci_list = convert_sympy_obj(Ricci)
+            G_lower_list = convert_sympy_obj(G_lower)
+            
             result = {
                 'result': {
                     'coordinates': [str(coord) for coord in wspolrzedne],
@@ -85,10 +97,10 @@ def calculate_view(request):
                                 for j in range(n) 
                                 if G_lower[i,j] != 0],
                     'scalar': [f"R = {convert_sympy_obj(Scalar_Curvature)}"],
-                    'g': g.tolist(),
-                    'Gamma': Gamma,
-                    'R_abcd': R_abcd,
-                    'Ricci': Ricci.tolist(),
+                    'g': g_list,
+                    'Gamma': Gamma_list,
+                    'R_abcd': R_abcd_list,
+                    'Ricci': Ricci_list,
                     'status': 'completed'
                 }
             }
