@@ -2,74 +2,59 @@ from functools import lru_cache
 import sympy as sp
 
 def wczytaj_metryke_z_tekstu(metric_text: str):
-    try:
-        # Dodaj cache dla często używanych symboli
-        @lru_cache(maxsize=128)
-        def create_symbol(sym_name):
-            sym_name = sym_name.strip()
-            if not sym_name:
-                raise ValueError("Empty symbol name")
-                
-            if sym_name in symbol_assumptions:
-                return sp.Symbol(sym_name, **symbol_assumptions[sym_name])
-            return sp.Symbol(sym_name)
+    symbol_assumptions = {
+        'a': dict(real=True, positive=True),
+        'tau': dict(real=True),
+        'psi': dict(real=True),
+        'theta': dict(real=True),
+        'phi': dict(real=True),
+        'chi': dict(real=True),
+        'k': dict(real=True)
+    }
 
-        # Walidacja wejścia
-        if len(metric_text) > 5000:
-            raise ValueError("Metric text too long")
+    def create_symbol(sym_name):
+        sym_name = sym_name.strip()
+        if sym_name in symbol_assumptions:
+            return sp.Symbol(sym_name, **symbol_assumptions[sym_name])
+        return sp.Symbol(sym_name)
 
-        # Szybsze parsowanie linii
-        lines = [line.partition('#')[0].strip() for line in metric_text.splitlines()]
-        lines = [line for line in lines if line]
+    wspolrzedne = []
+    parametry = []
+    metryka = {}
 
-        if not lines:
-            raise ValueError("No valid lines in input")
+    # Podziel na linie i usuń komentarze
+    lines = [line.split('#')[0].strip() for line in metric_text.split('\n')]
+    lines = [line for line in lines if line]
 
-        # Optymalizacja parsowania pierwszej linii
-        first_line = lines[0]
-        if ';' not in first_line:
-            raise ValueError("First line must contain coordinates and parameters separated by ';'")
+    if not lines:
+        raise ValueError("Empty metric text")
 
-        wsp_, prm_ = first_line.split(';', 1)
-        wspolrzedne = [create_symbol(s) for s in wsp_.split(',') if s.strip()]
-        parametry = [create_symbol(s) for s in prm_.split(',') if s.strip()]
+    # Parsuj pierwszą linię
+    first_line = lines[0]
+    if ';' in first_line:
+        wsp_, prm_ = first_line.split(';')
+        wsp_strs = [sym.strip() for sym in wsp_.split(',') if sym.strip()]
+        wspolrzedne = [create_symbol(s) for s in wsp_strs]
 
-        # Pre-kompilacja wyrażeń symbolicznych
-        symbols_dict = {str(sym): sym for sym in wspolrzedne + parametry}
-        symbols_dict.update({
-            'sin': sp.sin,
-            'cos': sp.cos,
-            'tan': sp.tan,
-            'exp': sp.exp,
-            'M': sp.Symbol('M', real=True, positive=True)
-        })
+        prm_ = prm_.strip()
+        if prm_:
+            par_strs = [sym.strip() for sym in prm_.split(',') if sym.strip()]
+            parametry = [create_symbol(s) for s in par_strs]
+    else:
+        raise ValueError("First line must contain coordinates and parameters")
 
-        # Optymalizacja parsowania metryki
-        n = len(wspolrzedne)
-        metryka = {}
-        
-        for line in lines[1:]:
+    # Parsuj komponenty metryki
+    for line in lines[1:]:
+        dat = line.split(maxsplit=2)
+        if len(dat) == 3:
             try:
-                if 'g_{' in line and '=' in line:
-                    # Format g_{ij} = expr
-                    idx_start = line.find('{') + 1
-                    idx_end = line.find('}')
-                    i, j = map(int, line[idx_start:idx_end].split(','))
-                    expr = line.split('=')[1].strip()
-                else:
-                    # Format: i j expr
-                    i, j, expr = line.split(maxsplit=2)
-                    i, j = int(i), int(j)
+                i, j, expr = int(dat[0]), int(dat[1]), dat[2]
+                symbols_dict = {str(sym): sym for sym in wspolrzedne + parametry}
+                metryka[(i, j)] = sp.sympify(expr, locals=symbols_dict)
+            except ValueError:
+                raise ValueError(f"Invalid metric component: {line}")
 
-                expr_sympy = sp.sympify(expr, locals=symbols_dict)
-                metryka[(i, j)] = expr_sympy
-                if i != j:
-                    metryka[(j, i)] = expr_sympy
-            except Exception as e:
-                print(f"Warning: Skipping invalid line '{line}': {e}")
-                continue
-
-        return wspolrzedne, parametry, metryka
+    return wspolrzedne, parametry, metryka
 
     except Exception as e:
         raise ValueError(f"Metric parsing error: {str(e)}") 
