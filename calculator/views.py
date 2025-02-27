@@ -36,53 +36,6 @@ def convert_sympy_obj(obj):
 
 def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvature, wspolrzedne, parametry) -> dict:
     try:
-        sections = {
-            'metric': [],
-            'christoffel': [],
-            'riemann': [],
-            'ricci': [],
-            'einstein': [],
-            'scalar': []
-        }
-        
-        current_section = None
-        lines = output_text.split('\n')
-        
-        latex_sections = {
-            'christoffelLatex': [],
-            'riemannLatex': [],
-            'ricciLatex': [],
-            'einsteinLatex': []
-        }
-        
-        for line in lines:
-            if '\\(' in line:
-                latex_content = line[line.find('\\('):line.find('\\)')+2]
-                if current_section == 'christoffel':
-                    latex_sections['christoffelLatex'].append(latex_content)
-                elif current_section == 'riemann':
-                    latex_sections['riemannLatex'].append(latex_content)
-                elif current_section == 'ricci':
-                    latex_sections['ricciLatex'].append(latex_content)
-                elif current_section == 'einstein':
-                    latex_sections['einsteinLatex'].append(latex_content)
-                
-                if current_section:
-                    sections[current_section].append(line.strip())
-            
-            if "Metric tensor components" in line:
-                current_section = 'metric'
-            elif "Christoffel symbols" in line:
-                current_section = 'christoffel'
-            elif "Riemann tensor" in line:
-                current_section = 'riemann'
-            elif "Ricci tensor" in line:
-                current_section = 'ricci'
-            elif "Einstein tensor" in line:
-                current_section = 'einstein'
-            elif "Scalar curvature" in line:
-                current_section = 'scalar'
-
         # Filtrowanie niezerowych komponentów metryki
         n = len(wspolrzedne)
         metryka_dict = {}
@@ -91,31 +44,6 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
                 val = convert_sympy_obj(g[i,j])
                 if val != 0 and val != "0":
                     metryka_dict[f"{i},{j}"] = val
-
-        # Filtrowanie niezerowych komponentów Gamma
-        gamma_nonzero = []
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    val = convert_sympy_obj(Gamma[i][j][k])
-                    if val != 0 and val != "0":
-                        gamma_nonzero.append({
-                            'indices': [i,j,k],
-                            'value': val
-                        })
-
-        # Filtrowanie niezerowych komponentów tensora Riemanna
-        riemann_nonzero = []
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    for l in range(n):
-                        val = convert_sympy_obj(R_abcd[i][j][k][l])
-                        if val != 0 and val != "0":
-                            riemann_nonzero.append({
-                                'indices': [i,j,k,l],
-                                'value': val
-                            })
 
         # Filtrowanie niezerowych komponentów tensora Ricciego
         ricci_nonzero = {}
@@ -126,25 +54,10 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
                     ricci_nonzero[f"{i},{j}"] = val
 
         result = {
-            'metric': sections['metric'],
-            'christoffel': sections['christoffel'],
-            'riemann': sections['riemann'],
-            'ricci': sections['ricci'],
-            'einstein': sections['einstein'],
-            'scalar': sections['scalar'],
             'coordinates': [str(coord) for coord in wspolrzedne],
             'parameters': [str(param) for param in parametry],
             'metryka': metryka_dict,
             'scalarCurvature': convert_sympy_obj(Scalar_Curvature),
-            'scalarCurvatureLatex': f"\\({sp.latex(Scalar_Curvature)}\\)",
-            'christoffelLatex': latex_sections['christoffelLatex'],
-            'riemannLatex': latex_sections['riemannLatex'],
-            'ricciLatex': latex_sections['ricciLatex'],
-            'einsteinLatex': latex_sections['einsteinLatex'],
-            'outputText': output_text,
-            'g': metryka_dict,
-            'Gamma': gamma_nonzero,
-            'R_abcd': riemann_nonzero,
             'Ricci': ricci_nonzero,
             'success': True
         }
