@@ -57,13 +57,14 @@ def oblicz_tensory(wspolrzedne, metryka):
             for sigma in range(n):
                 for mu in range(n):
                     for nu in range(n):
+                        # Poprawiona formuła na tensor Riemanna
                         term1 = sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu])
                         term2 = sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu])
                         sum_term = 0
                         for lam in range(n):
                             sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma] -
                                        Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
-                        R_abcd[rho][sigma][mu][nu] = sp.simplify(term1 - term2 + sum_term)
+                        R_abcd[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
 
         print("Riemann tensor calculated")
 
@@ -86,6 +87,17 @@ def oblicz_tensory(wspolrzedne, metryka):
         Scalar_Curvature = sp.simplify(Scalar_Curvature)
 
         print("Scalar curvature calculated:", Scalar_Curvature)
+
+        # Dla metryki Schwarzschilda powinniśmy otrzymać:
+        # Γ^r_{tt} = (M*r - 2*M^2)/(r^3 - 2*M*r^2)
+        # Γ^t_{tr} = M/(r^2 - 2*M*r)
+        # Γ^r_{rr} = -M/(r^2 - 2*M*r)
+        # Γ^θ_{rθ} = 1/r
+        # Γ^r_{θθ} = -r + 2*M
+        # Γ^φ_{rφ} = 1/r
+        # Γ^r_{φφ} = (-r + 2*M)*sin^2(θ)
+        # Γ^θ_{φφ} = -sin(θ)*cos(θ)
+        # Γ^φ_{θφ} = cot(θ)
 
         return g, Gamma, R_abcd, Ricci, Scalar_Curvature
 

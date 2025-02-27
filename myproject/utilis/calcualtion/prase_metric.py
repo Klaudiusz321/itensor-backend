@@ -66,7 +66,8 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
             'sin': sp.sin,
             'cos': sp.cos,
             'tan': sp.tan,
-            'exp': sp.exp
+            'exp': sp.exp,
+            'M': sp.Symbol('M', real=True, positive=True)
         })
 
         # Parsuj komponenty metryki
