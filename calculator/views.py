@@ -1,4 +1,4 @@
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import json
@@ -10,6 +10,10 @@ from myproject.utilis.calcualtion import (
     generate_output
 )
 import sympy as sp
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Thread
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -128,97 +132,71 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'details': str(e)
         }
 
+def calculate_in_background(metric_text):
+    try:
+        # Parsowanie metryki
+        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        
+        # Obliczenia tensorów
+        n = len(wspolrzedne)
+        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+        
+        if g.det() == 0:
+            raise ValueError("Metric tensor is singular (not invertible)")
+        
+        g_inv = g.inv()
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        
+        # Generowanie wyniku
+        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+        result = parse_metric_output(
+            output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
+            wspolrzedne, parametry
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Background calculation error: {e}", exc_info=True)
+        return {'error': str(e)}
+
 @csrf_exempt
 @require_POST
 def calculate_view(request):
     try:
-        logger.info("=== Starting calculate_view ===")
-        
-        # 1. Parsowanie JSON
-        try:
-            data = json.loads(request.body)
-            logger.info(f"Received data: {data}")
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {e}")
-            return JsonResponse({
-                'error': 'Invalid JSON format',
-                'details': str(e)
-            }, status=400)
-
-        # 2. Sprawdzenie metric_text
+        data = json.loads(request.body)
         metric_text = data.get('metric_text')
+        
         if not metric_text:
-            logger.error("Missing metric_text")
-            return JsonResponse({
-                'error': 'Missing metric_text'
-            }, status=400)
-
-        logger.info(f"Processing metric_text:\n{metric_text}")
-
-        # 3. Parsowanie metryki
-        try:
-            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-            logger.info(f"Parsed coordinates: {[str(w) for w in wspolrzedne]}")
-            logger.info(f"Parsed parameters: {[str(p) for p in parametry]}")
-            logger.info(f"Parsed metric components: {len(metryka)} components")
-        except Exception as e:
-            logger.error(f"Metric parsing error: {e}", exc_info=True)
-            return JsonResponse({
-                'error': 'Metric parsing error',
-                'details': str(e)
-            }, status=400)
-
-        # 4. Obliczenia tensorów
-        try:
-            n = len(wspolrzedne)
-            logger.info(f"Starting tensor calculations for {n} dimensions")
+            return JsonResponse({'error': 'Missing metric_text'}, status=400)
             
-            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-            logger.info("Basic tensors calculated")
-            
-            # Sprawdź czy macierz metryczna jest odwracalna
-            if g.det() == 0:
-                raise ValueError("Metric tensor is singular (not invertible)")
-            
-            g_inv = g.inv()
-            logger.info("Metric inverse calculated")
-            
-            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
-            logger.info("Einstein tensor calculated")
-            
-        except Exception as e:
-            logger.error(f"Calculation error: {e}", exc_info=True)
-            return JsonResponse({
-                'error': 'Calculation error',
-                'details': str(e)
-            }, status=400)
-
-        # 5. Generowanie wyniku
-        try:
-            output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-            result = parse_metric_output(
-                output, 
-                g, 
-                Gamma, 
-                R_abcd, 
-                Ricci, 
-                Scalar_Curvature,
-                wspolrzedne,
-                parametry
-            )
-            logger.info("Output generated successfully")
-            return JsonResponse(result)
-        except Exception as e:
-            logger.error(f"Output generation error: {e}", exc_info=True)
-            return JsonResponse({
-                'error': 'Output generation error',
-                'details': str(e)
-            }, status=400)
-
+        # Natychmiast zwróć odpowiedź z ID zadania
+        calculation_id = str(uuid.uuid4())
+        response = StreamingHttpResponse(
+            streaming_content=calculate_stream(metric_text, calculation_id),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        return response
+        
     except Exception as e:
-        logger.error(f"Unexpected server error: {e}", exc_info=True)
-        return JsonResponse({
-            'error': 'Server error',
-            'details': str(e)
-        }, status=500)
+        logger.error(f"Error in calculate_view: {e}", exc_info=True)
+        return JsonResponse({'error': str(e)}, status=500)
+
+def calculate_stream(metric_text, calculation_id):
+    """Generator dla SSE (Server-Sent Events)"""
+    try:
+        yield f"data: {json.dumps({'status': 'started', 'id': calculation_id})}\n\n"
+        
+        # Rozpocznij obliczenia w osobnym wątku
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(calculate_in_background, metric_text)
+            
+            # Czekaj na wynik z timeoutem
+            try:
+                result = future.result(timeout=25)  # 25 sekund na obliczenia
+                yield f"data: {json.dumps({'status': 'completed', 'result': result})}\n\n"
+            except TimeoutError:
+                yield f"data: {json.dumps({'status': 'timeout', 'error': 'Calculations took too long'})}\n\n"
+                
+    except Exception as e:
+        yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
 
