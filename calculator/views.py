@@ -148,32 +148,55 @@ def calculate_in_background(metric_text):
         logger.info("Starting calculations...")
         
         # Parsowanie metryki
-        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-        logger.info("Parsing complete")
+        try:
+            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+            logger.info("Parsing complete")
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': f"Metric parsing error: {str(e)}"
+            }
         
         # Obliczenia tensorów
-        n = len(wspolrzedne)
-        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-        logger.info("Tensor calculations complete")
-        
-        if g.det() == 0:
-            raise ValueError("Metric tensor is singular")
+        try:
+            n = len(wspolrzedne)
+            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+            logger.info("Tensor calculations complete")
             
-        g_inv = g.inv()
-        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
-        logger.info("Einstein tensor calculated")
-        
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        result = parse_metric_output(
-            output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
-            wspolrzedne, parametry
-        )
-        
-        logger.info("Calculations complete")
-        return {
-            'status': 'completed',
-            'result': result
-        }
+            if g.det() == 0:
+                return {
+                    'status': 'error',
+                    'error': "Metric tensor is singular"
+                }
+                
+            g_inv = g.inv()
+            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+            logger.info("Einstein tensor calculated")
+            
+            output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+            result = parse_metric_output(
+                output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
+                wspolrzedne, parametry
+            )
+            
+            if result.get('error'):
+                return {
+                    'status': 'error',
+                    'error': result['error']
+                }
+            
+            logger.info("Calculations complete")
+            return {
+                'status': 'completed',
+                'result': result
+            }
+            
+        except Exception as e:
+            logger.error(f"Calculation error: {str(e)}", exc_info=True)
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
         
     except Exception as e:
         logger.error(f"Background calculation error: {e}", exc_info=True)
