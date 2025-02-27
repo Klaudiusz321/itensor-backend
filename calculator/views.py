@@ -14,6 +14,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 import asyncio
+import time
+from functools import lru_cache
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -132,31 +135,68 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'details': str(e)
         }
 
+def optimize_tensor_memory(tensor):
+    """Optymalizuje zużycie pamięci przez tensory"""
+    if isinstance(tensor, sp.Matrix):
+        # Konwertuj tylko niezerowe elementy
+        return {(i,j): tensor[i,j] for i in range(tensor.rows) 
+                for j in range(tensor.cols) if tensor[i,j] != 0}
+    return tensor
+
 def calculate_in_background(metric_text):
     try:
-        # Parsowanie metryki
-        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        # Dodaj cache dla często używanych wyrażeń
+        @lru_cache(maxsize=128)
+        def cached_tensor_calculation(metric_text_hash):
+            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+            n = len(wspolrzedne)
+            return oblicz_tensory(wspolrzedne, metryka)
         
-        # Obliczenia tensorów
-        n = len(wspolrzedne)
+        # Użyj hasza tekstu metryki jako klucza cache
+        metric_hash = hashlib.md5(metric_text.encode()).hexdigest()
+        
+        # Spróbuj użyć cache
+        g, Gamma, R_abcd, Ricci, Scalar_Curvature = cached_tensor_calculation(metric_hash)
+        
+        start_time = time.time()
+        logger.info(f"Starting calculation for metric length: {len(metric_text)}")
+        
+        parsing_start = time.time()
+        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        logger.info(f"Parsing completed in {time.time() - parsing_start:.2f}s")
+        
+        tensor_start = time.time()
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+        logger.info(f"Tensor calculation completed in {time.time() - tensor_start:.2f}s")
         
         if g.det() == 0:
             raise ValueError("Metric tensor is singular (not invertible)")
         
         g_inv = g.inv()
-        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, len(wspolrzedne))
         
         # Generowanie wyniku
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, len(wspolrzedne))
         result = parse_metric_output(
             output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
             wspolrzedne, parametry
         )
+        
+        logger.info(f"Total calculation time: {time.time() - start_time:.2f}s")
         return result
     except Exception as e:
-        logger.error(f"Background calculation error: {e}", exc_info=True)
-        return {'error': str(e)}
+        logger.error(f"Calculation failed after {time.time() - start_time:.2f}s: {e}")
+        raise
+
+def validate_metric_text(metric_text):
+    if len(metric_text) > 5000:  # Maksymalna długość
+        raise ValueError("Metric text too long")
+    
+    # Sprawdź złożoność wyrażeń
+    if metric_text.count('^') > 50:  # Zbyt wiele potęg
+        raise ValueError("Expression too complex")
+        
+    return metric_text
 
 @csrf_exempt
 @require_POST
@@ -167,6 +207,12 @@ def calculate_view(request):
         
         if not metric_text:
             return JsonResponse({'error': 'Missing metric_text'}, status=400)
+            
+        # Walidacja przed obliczeniami
+        try:
+            metric_text = validate_metric_text(metric_text)
+        except ValueError as e:
+            return JsonResponse({'error': str(e)}, status=400)
             
         # Natychmiast zwróć odpowiedź z ID zadania
         calculation_id = str(uuid.uuid4())
@@ -182,21 +228,30 @@ def calculate_view(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 def calculate_stream(metric_text, calculation_id):
-    """Generator dla SSE (Server-Sent Events)"""
     try:
         yield f"data: {json.dumps({'status': 'started', 'id': calculation_id})}\n\n"
         
-        # Rozpocznij obliczenia w osobnym wątku
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(calculate_in_background, metric_text)
+        # Podziel obliczenia na etapy
+        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        yield f"data: {json.dumps({'status': 'parsing_complete'})}\n\n"
+        
+        n = len(wspolrzedne)
+        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+        yield f"data: {json.dumps({'status': 'tensors_calculated'})}\n\n"
+        
+        if g.det() == 0:
+            raise ValueError("Metric tensor is singular")
             
-            # Czekaj na wynik z timeoutem
-            try:
-                result = future.result(timeout=25)  # 25 sekund na obliczenia
-                yield f"data: {json.dumps({'status': 'completed', 'result': result})}\n\n"
-            except TimeoutError:
-                yield f"data: {json.dumps({'status': 'timeout', 'error': 'Calculations took too long'})}\n\n"
-                
+        g_inv = g.inv()
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        yield f"data: {json.dumps({'status': 'einstein_calculated'})}\n\n"
+        
+        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+        result = parse_metric_output(output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
+                                   wspolrzedne, parametry)
+        
+        yield f"data: {json.dumps({'status': 'completed', 'result': result})}\n\n"
+        
     except Exception as e:
         yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
 
