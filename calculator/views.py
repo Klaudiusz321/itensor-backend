@@ -145,48 +145,42 @@ def optimize_tensor_memory(tensor):
 
 def calculate_in_background(metric_text):
     try:
-        # Dodaj cache dla często używanych wyrażeń
-        @lru_cache(maxsize=128)
-        def cached_tensor_calculation(metric_text_hash):
-            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-            n = len(wspolrzedne)
-            return oblicz_tensory(wspolrzedne, metryka)
+        logger.info("Starting calculations...")
         
-        # Użyj hasza tekstu metryki jako klucza cache
-        metric_hash = hashlib.md5(metric_text.encode()).hexdigest()
-        
-        # Spróbuj użyć cache
-        g, Gamma, R_abcd, Ricci, Scalar_Curvature = cached_tensor_calculation(metric_hash)
-        
-        start_time = time.time()
-        logger.info(f"Starting calculation for metric length: {len(metric_text)}")
-        
-        parsing_start = time.time()
+        # Parsowanie metryki
         wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-        logger.info(f"Parsing completed in {time.time() - parsing_start:.2f}s")
+        logger.info("Parsing complete")
         
-        tensor_start = time.time()
+        # Obliczenia tensorów
+        n = len(wspolrzedne)
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-        logger.info(f"Tensor calculation completed in {time.time() - tensor_start:.2f}s")
+        logger.info("Tensor calculations complete")
         
         if g.det() == 0:
-            raise ValueError("Metric tensor is singular (not invertible)")
-        
+            raise ValueError("Metric tensor is singular")
+            
         g_inv = g.inv()
-        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, len(wspolrzedne))
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+        logger.info("Einstein tensor calculated")
         
-        # Generowanie wyniku
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, len(wspolrzedne))
+        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
         result = parse_metric_output(
             output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
             wspolrzedne, parametry
         )
         
-        logger.info(f"Total calculation time: {time.time() - start_time:.2f}s")
-        return result
+        logger.info("Calculations complete")
+        return {
+            'status': 'completed',
+            'result': result
+        }
+        
     except Exception as e:
-        logger.error(f"Calculation failed after {time.time() - start_time:.2f}s: {e}")
-        raise
+        logger.error(f"Background calculation error: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'error': str(e)
+        }
 
 def validate_metric_text(metric_text):
     if len(metric_text) > 5000:  # Maksymalna długość
@@ -208,50 +202,28 @@ def calculate_view(request):
         if not metric_text:
             return JsonResponse({'error': 'Missing metric_text'}, status=400)
             
-        # Walidacja przed obliczeniami
+        # Zamiast StreamingHttpResponse użyjmy zwykłego JsonResponse
         try:
-            metric_text = validate_metric_text(metric_text)
-        except ValueError as e:
-            return JsonResponse({'error': str(e)}, status=400)
+            # Rozpocznij obliczenia w osobnym wątku z timeoutem
+            with ThreadPoolExecutor() as executor:
+                future = executor.submit(calculate_in_background, metric_text)
+                try:
+                    result = future.result(timeout=25)  # 25 sekund timeout
+                    return JsonResponse(result)
+                except TimeoutError:
+                    return JsonResponse({
+                        'error': 'Calculations took too long',
+                        'status': 'timeout'
+                    }, status=408)
+                    
+        except Exception as e:
+            logger.error(f"Calculation error: {e}", exc_info=True)
+            return JsonResponse({
+                'error': str(e),
+                'status': 'error'
+            }, status=500)
             
-        # Natychmiast zwróć odpowiedź z ID zadania
-        calculation_id = str(uuid.uuid4())
-        response = StreamingHttpResponse(
-            streaming_content=calculate_stream(metric_text, calculation_id),
-            content_type='text/event-stream'
-        )
-        response['Cache-Control'] = 'no-cache'
-        return response
-        
     except Exception as e:
-        logger.error(f"Error in calculate_view: {e}", exc_info=True)
-        return JsonResponse({'error': str(e)}, status=500)
-
-def calculate_stream(metric_text, calculation_id):
-    try:
-        yield f"data: {json.dumps({'status': 'started', 'id': calculation_id})}\n\n"
-        
-        # Podziel obliczenia na etapy
-        wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-        yield f"data: {json.dumps({'status': 'parsing_complete'})}\n\n"
-        
-        n = len(wspolrzedne)
-        g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-        yield f"data: {json.dumps({'status': 'tensors_calculated'})}\n\n"
-        
-        if g.det() == 0:
-            raise ValueError("Metric tensor is singular")
-            
-        g_inv = g.inv()
-        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
-        yield f"data: {json.dumps({'status': 'einstein_calculated'})}\n\n"
-        
-        output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-        result = parse_metric_output(output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
-                                   wspolrzedne, parametry)
-        
-        yield f"data: {json.dumps({'status': 'completed', 'result': result})}\n\n"
-        
-    except Exception as e:
-        yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+        logger.error(f"Request error: {e}", exc_info=True)
+        return JsonResponse({'error': str(e)}, status=400)
 
