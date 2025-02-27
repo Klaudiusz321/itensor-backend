@@ -47,9 +47,14 @@ def oblicz_tensory(wspolrzedne, metryka):
                         partial_nu = sp.diff(g[mu, lam], wspolrzedne[nu])
                         partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
                         sum_term += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
-                    Gamma[sigma][mu][nu] = sp.simplify(sp.Rational(1, 2) * sum_term)
+                    Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * sum_term)
 
-        print("Christoffel symbols calculated")
+        print("Christoffel symbols:")
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    if Gamma[i][j][k] != 0:
+                        print(f"Γ^{i}_{j}{k} = {Gamma[i][j][k]}")
 
         # Oblicz tensor Riemanna
         R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
@@ -57,16 +62,22 @@ def oblicz_tensory(wspolrzedne, metryka):
             for sigma in range(n):
                 for mu in range(n):
                     for nu in range(n):
-                        # Poprawiona formuła na tensor Riemanna
-                        term1 = sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu])
-                        term2 = sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu])
+                        term1 = custom_simplify(sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu]))
+                        term2 = custom_simplify(sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu]))
                         sum_term = 0
                         for lam in range(n):
-                            sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma] -
-                                       Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
+                            prod1 = custom_simplify(Gamma[rho][mu][lam] * Gamma[lam][nu][sigma])
+                            prod2 = custom_simplify(Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
+                            sum_term += (prod1 - prod2)
                         R_abcd[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
 
-        print("Riemann tensor calculated")
+        print("\nRiemann tensor components:")
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    for l in range(n):
+                        if R_abcd[i][j][k][l] != 0:
+                            print(f"R_{i}{j}{k}{l} = {R_abcd[i][j][k][l]}")
 
         # Oblicz tensor Ricciego
         Ricci = sp.zeros(n, n)
@@ -75,18 +86,23 @@ def oblicz_tensory(wspolrzedne, metryka):
                 sum_term = 0
                 for rho in range(n):
                     sum_term += R_abcd[rho][mu][rho][nu]
-                Ricci[mu, nu] = sp.simplify(sum_term)
+                Ricci[mu, nu] = custom_simplify(sum_term)
 
-        print("Ricci tensor calculated")
+        print("\nRicci tensor components:")
+        for i in range(n):
+            for j in range(n):
+                if Ricci[i,j] != 0:
+                    print(f"R_{i}{j} = {Ricci[i,j]}")
 
         # Oblicz skalar krzywizny
         Scalar_Curvature = 0
         for mu in range(n):
             for nu in range(n):
-                Scalar_Curvature += g_inv[mu, nu] * Ricci[mu, nu]
-        Scalar_Curvature = sp.simplify(Scalar_Curvature)
+                term = custom_simplify(g_inv[mu, nu] * Ricci[mu, nu])
+                Scalar_Curvature += term
+        Scalar_Curvature = custom_simplify(Scalar_Curvature)
 
-        print("Scalar curvature calculated:", Scalar_Curvature)
+        print("\nScalar curvature:", Scalar_Curvature)
 
         # Dla metryki Schwarzschilda powinniśmy otrzymać:
         # Γ^r_{tt} = (M*r - 2*M^2)/(r^3 - 2*M*r^2)
