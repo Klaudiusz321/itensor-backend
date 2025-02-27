@@ -62,19 +62,35 @@ def calculate_view(request):
                 'result': {
                     'coordinates': [str(coord) for coord in wspolrzedne],
                     'parameters': [str(param) for param in parametry],
-                    'metryka': {
-                        f"{i},{j}": convert_sympy_obj(g[i,j]) 
-                        for i in range(n) for j in range(n) 
-                        if g[i,j] != 0
-                    },
-                    'scalarCurvature': convert_sympy_obj(Scalar_Curvature),
-                    'Ricci': {
-                        f"{i},{j}": convert_sympy_obj(Ricci[i,j]) 
-                        for i in range(n) for j in range(n) 
-                        if Ricci[i,j] != 0
-                    }
-                },
-                'status': 'completed'
+                    'metric': [f"g_{{{i}{j}}} = {convert_sympy_obj(g[i,j])}" 
+                             for i in range(n) for j in range(n) 
+                             if g[i,j] != 0],
+                    'christoffel': [f"\\Gamma^{{{k}}}_{{{i}{j}}} = {convert_sympy_obj(Gamma[k][i][j])}"
+                                  for k in range(n) 
+                                  for i in range(n) 
+                                  for j in range(n) 
+                                  if Gamma[k][i][j] != 0],
+                    'riemann': [f"R_{{{a}{b}{c}{d}}} = {convert_sympy_obj(R_abcd[a][b][c][d])}"
+                               for a in range(n) 
+                               for b in range(n) 
+                               for c in range(n) 
+                               for d in range(n) 
+                               if R_abcd[a][b][c][d] != 0],
+                    'ricci': [f"R_{{{i}{j}}} = {convert_sympy_obj(Ricci[i,j])}"
+                             for i in range(n) 
+                             for j in range(n) 
+                             if Ricci[i,j] != 0],
+                    'einstein': [f"G_{{{i}{j}}} = {convert_sympy_obj(G_lower[i,j])}"
+                                for i in range(n) 
+                                for j in range(n) 
+                                if G_lower[i,j] != 0],
+                    'scalar': [f"R = {convert_sympy_obj(Scalar_Curvature)}"],
+                    'g': g.tolist(),
+                    'Gamma': Gamma,
+                    'R_abcd': R_abcd,
+                    'Ricci': Ricci.tolist(),
+                    'status': 'completed'
+                }
             }
             
             return JsonResponse(result)
