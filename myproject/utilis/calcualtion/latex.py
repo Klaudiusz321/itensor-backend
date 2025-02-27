@@ -110,3 +110,13 @@ def generate_einstein_latex(G_lower, n):
                 latex = f"G_{{{i}{j}}} = {sp.latex(G_lower[i,j])}"
                 latex_symbols.append(latex)
     return latex_symbols
+
+def generate_weyl_latex(Weyl, n):
+    for rho in range(n):
+        for sigma in range(n):
+            for mu in range(n):
+                for nu in range(n):
+                    val = Weyl[rho][sigma][mu][nu]
+                    if val != 0:
+                        print(f"C_{rho}{sigma}{mu}{nu} = {val}")
+

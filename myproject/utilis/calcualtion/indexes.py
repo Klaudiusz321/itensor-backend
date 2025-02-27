@@ -31,3 +31,16 @@ def lower_indices(Riemann, g, n):
                 for d in range(n):
                     R_abcd[a][b][c][d] = sum(g[a, i] * Riemann[i][b][c][d] for i in range(n))
     return R_abcd
+
+def raise_first_index_weyl(C, g_inv, n):
+   
+    C_raised = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+    for rho in range(n):
+        for sigma in range(n):
+            for mu in range(n):
+                for nu in range(n):
+                    temp = 0
+                    for lam in range(n):
+                        temp += g_inv[rho, lam] * C[lam][sigma][mu][nu]
+                    C_raised[rho][sigma][mu][nu] = (temp)
+    return C_raised

@@ -6,7 +6,8 @@ import logging
 from myproject.utilis.calcualtion import (
     oblicz_tensory, 
     compute_einstein_tensor, 
-    wczytaj_metryke_z_tekstu
+    wczytaj_metryke_z_tekstu,
+    compute_weyl_tensor
 )
 import sympy as sp
 
@@ -39,6 +40,8 @@ def calculate_view(request):
         try:
             n = len(wspolrzedne)
             g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+            Weyl = compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, len(wspolrzedne))
+
             
             if g.det() == 0:
                 return JsonResponse({
@@ -74,7 +77,13 @@ def calculate_view(request):
                             for j in range(n) 
                             if G_lower[i,j] != 0],
                 'scalar': [f"R = {convert_to_latex(Scalar_Curvature)}"],
-                'status': 'completed'
+                'Weyl': [f"C_{{{i}{j}{k}{l}}} = {convert_to_latex(Weyl[i][j][k][l])}"
+                         for i in range(n) 
+                         for j in range(n) 
+                         for k in range(n) 
+                         for l in range(n) 
+                         if Weyl[i][j][k][l] != 0],
+                
             }
             
             return JsonResponse(result)

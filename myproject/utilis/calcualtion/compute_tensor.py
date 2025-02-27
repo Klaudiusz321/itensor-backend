@@ -69,3 +69,52 @@ def compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n):
             G_upper[mu, nu] = custom_simplify(sum_term)
 
     return G_upper, G_lower
+
+def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, n):
+    """
+    Oblicza tensor Weyla C_{rho,sigma,mu,nu} w wymiarze n 
+    z danych: R_abcd (Riemann), Ricci (tensor Ricciego),
+    Scalar_Curvature (skalar krzywizny) i g (metryka).
+    
+    Zwraca 4-wymiarową listę C[rho][sigma][mu][nu].
+    """
+    # Inicjalizacja
+    C_abcd = [[[[0 for _ in range(n)] for _ in range(n)] 
+                              for _ in range(n)] for _ in range(n)]
+    
+    # Dla n < 3 tensor Weyla znika
+    if n < 3:
+        return C_abcd  # same zera
+
+    # Współczynniki z definicji
+    factor_1 = 1 / (n - 2)
+    factor_2 = 1 / ((n - 1) * (n - 2))
+
+    # Pętla po wszystkich indeksach
+    for rho in range(n):
+        for sigma in range(n):
+            for mu in range(n):
+                for nu in range(n):
+                    # --- Pierwsza część: Riemann ---
+                    term_riemann = R_abcd[rho][sigma][mu][nu]
+                    
+                    
+                    term_2 = factor_1 * (
+                        g[rho, mu] * Ricci[nu, sigma]
+                        - g[rho, nu] * Ricci[mu, sigma]
+                        - g[sigma, mu] * Ricci[nu, rho]
+                        + g[sigma, nu] * Ricci[mu, rho]
+                    )
+                    
+                 
+                    term_3 = factor_2 * Scalar_Curvature * (
+                        g[rho, mu] * g[nu, sigma]
+                        - g[rho, nu] * g[mu, sigma]
+                        - g[sigma, mu] * g[nu, rho]
+                        + g[sigma, nu] * g[mu, rho]
+                    ) / 2  # bo w definicji jest [mu nu], czyli 1/2
+
+                    C_val = term_riemann - term_2 + term_3
+                    C_abcd[rho][sigma][mu][nu] = custom_simplify(C_val)
+
+    return C_abcd
