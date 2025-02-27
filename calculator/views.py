@@ -12,15 +12,10 @@ import sympy as sp
 
 logger = logging.getLogger(__name__)
 
-def convert_sympy_obj(obj):
-    if isinstance(obj, (list, tuple)):
-        return [convert_sympy_obj(item) for item in obj]
-    elif isinstance(obj, dict):
-        return {k: convert_sympy_obj(v) for k, v in obj.items()}
-    elif isinstance(obj, sp.Matrix):
-        return [[str(obj[i,j]) for j in range(obj.cols)] for i in range(obj.rows)]
-    else:
-        return str(obj)
+def convert_to_latex(obj):
+    if isinstance(obj, (sp.Basic, sp.Expr, sp.Matrix)):
+        return sp.latex(obj)
+    return str(obj)
 
 @csrf_exempt
 @require_POST
@@ -56,29 +51,29 @@ def calculate_view(request):
             result = {
                 'coordinates': [str(coord) for coord in wspolrzedne],
                 'parameters': [str(param) for param in parametry],
-                'metric': [f"g_{{{i}{j}}} = {str(g[i,j])}" 
+                'metric': [f"g_{{{i}{j}}} = {convert_to_latex(g[i,j])}" 
                          for i in range(n) for j in range(n) 
                          if g[i,j] != 0],
-                'christoffel': [f"\\Gamma^{{{k}}}_{{{i}{j}}} = {str(Gamma[k][i][j])}"
+                'christoffel': [f"\\Gamma^{{{k}}}_{{{i}{j}}} = {convert_to_latex(Gamma[k][i][j])}"
                               for k in range(n) 
                               for i in range(n) 
                               for j in range(n) 
                               if Gamma[k][i][j] != 0],
-                'riemann': [f"R_{{{a}{b}{c}{d}}} = {str(R_abcd[a][b][c][d])}"
+                'riemann': [f"R_{{{a}{b}{c}{d}}} = {convert_to_latex(R_abcd[a][b][c][d])}"
                            for a in range(n) 
                            for b in range(n) 
                            for c in range(n) 
                            for d in range(n) 
                            if R_abcd[a][b][c][d] != 0],
-                'ricci': [f"R_{{{i}{j}}} = {str(Ricci[i,j])}"
+                'ricci': [f"R_{{{i}{j}}} = {convert_to_latex(Ricci[i,j])}"
                          for i in range(n) 
                          for j in range(n) 
                          if Ricci[i,j] != 0],
-                'einstein': [f"G_{{{i}{j}}} = {str(G_lower[i,j])}"
+                'einstein': [f"G_{{{i}{j}}} = {convert_to_latex(G_lower[i,j])}"
                             for i in range(n) 
                             for j in range(n) 
                             if G_lower[i,j] != 0],
-                'scalar': [f"R = {str(Scalar_Curvature)}"],
+                'scalar': [f"R = {convert_to_latex(Scalar_Curvature)}"],
                 'status': 'completed'
             }
             
