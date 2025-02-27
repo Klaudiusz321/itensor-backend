@@ -54,33 +54,31 @@ def calculate_view(request):
             G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
             
             result = {
-                'result': {
-                    'coordinates': [str(coord) for coord in wspolrzedne],
-                    'parameters': [str(param) for param in parametry],
-                    'metric': [f"g_{{{i}{j}}} = {str(g[i,j])}" 
-                             for i in range(n) for j in range(n) 
-                             if g[i,j] != 0],
-                    'christoffel': [f"\\Gamma^{{{k}}}_{{{i}{j}}} = {str(Gamma[k][i][j])}"
-                                  for k in range(n) 
-                                  for i in range(n) 
-                                  for j in range(n) 
-                                  if Gamma[k][i][j] != 0],
-                    'riemann': [f"R_{{{a}{b}{c}{d}}} = {str(R_abcd[a][b][c][d])}"
-                               for a in range(n) 
-                               for b in range(n) 
-                               for c in range(n) 
-                               for d in range(n) 
-                               if R_abcd[a][b][c][d] != 0],
-                    'ricci': [f"R_{{{i}{j}}} = {str(Ricci[i,j])}"
-                             for i in range(n) 
-                             for j in range(n) 
-                             if Ricci[i,j] != 0],
-                    'einstein': [f"G_{{{i}{j}}} = {str(G_lower[i,j])}"
-                                for i in range(n) 
-                                for j in range(n) 
-                                if G_lower[i,j] != 0],
-                    'scalar': [f"R = {str(Scalar_Curvature)}"]
-                },
+                'coordinates': [str(coord) for coord in wspolrzedne],
+                'parameters': [str(param) for param in parametry],
+                'metric': [f"g_{{{i}{j}}} = {str(g[i,j])}" 
+                         for i in range(n) for j in range(n) 
+                         if g[i,j] != 0],
+                'christoffel': [f"\\Gamma^{{{k}}}_{{{i}{j}}} = {str(Gamma[k][i][j])}"
+                              for k in range(n) 
+                              for i in range(n) 
+                              for j in range(n) 
+                              if Gamma[k][i][j] != 0],
+                'riemann': [f"R_{{{a}{b}{c}{d}}} = {str(R_abcd[a][b][c][d])}"
+                           for a in range(n) 
+                           for b in range(n) 
+                           for c in range(n) 
+                           for d in range(n) 
+                           if R_abcd[a][b][c][d] != 0],
+                'ricci': [f"R_{{{i}{j}}} = {str(Ricci[i,j])}"
+                         for i in range(n) 
+                         for j in range(n) 
+                         if Ricci[i,j] != 0],
+                'einstein': [f"G_{{{i}{j}}} = {str(G_lower[i,j])}"
+                            for i in range(n) 
+                            for j in range(n) 
+                            if G_lower[i,j] != 0],
+                'scalar': [f"R = {str(Scalar_Curvature)}"],
                 'status': 'completed'
             }
             
