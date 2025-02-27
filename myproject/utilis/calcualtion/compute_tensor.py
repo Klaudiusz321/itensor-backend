@@ -1,6 +1,18 @@
 import sympy as sp
 from ..simplification import custom_simplify
 from .indexes import lower_indices
+from functools import lru_cache
+import itertools
+
+@lru_cache(maxsize=32)
+def cached_christoffel(i, j, k, g, g_inv, wspolrzedne):
+    sum_term = 0
+    for l in range(len(wspolrzedne)):
+        partial_j = sp.diff(g[k, l], wspolrzedne[j])
+        partial_k = sp.diff(g[j, l], wspolrzedne[k])
+        partial_l = sp.diff(g[j, k], wspolrzedne[l])
+        sum_term += g_inv[i, l] * (partial_j + partial_k - partial_l)
+    return sp.simplify(sum_term / 2)
 
 def oblicz_tensory(wspolrzedne, metryka):
     try:
@@ -11,43 +23,18 @@ def oblicz_tensory(wspolrzedne, metryka):
         # Sprawdź czy mamy symbol czasu
         t = [s for s in wspolrzedne if str(s) == 't'][0] if any(str(s) == 't' for s in wspolrzedne) else sp.Symbol('t')
         
-        # Inicjalizacja metryki jako macierzy zerowej
-        g = sp.zeros(n, n)
+        # Inicjalizacja metryki jako macierzy
+        g = sp.Matrix([[metryka.get((i,j), 0) for j in range(n)] for i in range(n)])
         
-        # Wypełnij metrykę
-        for i in range(n):
-            for j in range(n):
-                if (i, j) in metryka:
-                    g[i, j] = metryka[(i, j)]
-                elif (j, i) in metryka:
-                    g[i, j] = metryka[(j, i)]
-                else:
-                    # Dla metryki diagonalnej, zakładamy 0 dla elementów pozadiagonalnych
-                    g[i, j] = 0 if i != j else 1
-
-        print("Metric tensor:")
-        print(g)
-
-        # Sprawdź czy macierz jest odwracalna
+        # Sprawdź wyznacznik wcześnie
         if g.det() == 0:
             raise ValueError("Metric tensor is singular (determinant = 0)")
-
+            
         g_inv = g.inv()
-        print("Inverse metric tensor:")
-        print(g_inv)
 
-        # Oblicz symbole Christoffela
-        Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
-        for sigma in range(n):
-            for mu in range(n):
-                for nu in range(n):
-                    sum_term = 0
-                    for lam in range(n):
-                        partial_mu = sp.diff(g[nu, lam], wspolrzedne[mu])
-                        partial_nu = sp.diff(g[mu, lam], wspolrzedne[nu])
-                        partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
-                        sum_term += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
-                    Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * sum_term)
+        # Oblicz symbole Christoffela z cache
+        Gamma = [[[cached_christoffel(i,j,k, g, g_inv, tuple(wspolrzedne)) 
+                  for k in range(n)] for j in range(n)] for i in range(n)]
 
         print("Christoffel symbols:")
         for i in range(n):
@@ -56,20 +43,19 @@ def oblicz_tensory(wspolrzedne, metryka):
                     if Gamma[i][j][k] != 0:
                         print(f"Γ^{i}_{j}{k} = {Gamma[i][j][k]}")
 
-        # Oblicz tensor Riemanna
-        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
-        for rho in range(n):
-            for sigma in range(n):
-                for mu in range(n):
-                    for nu in range(n):
-                        term1 = custom_simplify(sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu]))
-                        term2 = custom_simplify(sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu]))
-                        sum_term = 0
-                        for lam in range(n):
-                            prod1 = custom_simplify(Gamma[rho][mu][lam] * Gamma[lam][nu][sigma])
-                            prod2 = custom_simplify(Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
-                            sum_term += (prod1 - prod2)
-                        R_abcd[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
+        # Oblicz tensor Riemanna równolegle
+        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] 
+                   for _ in range(n)] for _ in range(n)]
+                   
+        for rho, sigma, mu, nu in itertools.product(range(n), repeat=4):
+            term1 = sp.diff(Gamma[rho][nu][sigma], wspolrzedne[mu])
+            term2 = sp.diff(Gamma[rho][mu][sigma], wspolrzedne[nu])
+            
+            sum_term = sum(Gamma[rho][mu][lam] * Gamma[lam][nu][sigma] -
+                         Gamma[rho][nu][lam] * Gamma[lam][mu][sigma]
+                         for lam in range(n))
+                         
+            R_abcd[rho][sigma][mu][nu] = sp.simplify(term1 - term2 + sum_term)
 
         print("\nRiemann tensor components:")
         for i in range(n):
@@ -80,13 +66,10 @@ def oblicz_tensory(wspolrzedne, metryka):
                             print(f"R_{i}{j}{k}{l} = {R_abcd[i][j][k][l]}")
 
         # Oblicz tensor Ricciego
-        Ricci = sp.zeros(n, n)
-        for mu in range(n):
-            for nu in range(n):
-                sum_term = 0
-                for rho in range(n):
-                    sum_term += R_abcd[rho][mu][rho][nu]
-                Ricci[mu, nu] = custom_simplify(sum_term)
+        Ricci = sp.zeros(n)
+        for mu, nu in itertools.product(range(n), repeat=2):
+            Ricci[mu, nu] = sum(R_abcd[rho][mu][rho][nu] for rho in range(n))
+            Ricci[mu, nu] = sp.simplify(Ricci[mu, nu])
 
         print("\nRicci tensor components:")
         for i in range(n):
@@ -95,12 +78,9 @@ def oblicz_tensory(wspolrzedne, metryka):
                     print(f"R_{i}{j} = {Ricci[i,j]}")
 
         # Oblicz skalar krzywizny
-        Scalar_Curvature = 0
-        for mu in range(n):
-            for nu in range(n):
-                term = custom_simplify(g_inv[mu, nu] * Ricci[mu, nu])
-                Scalar_Curvature += term
-        Scalar_Curvature = custom_simplify(Scalar_Curvature)
+        Scalar_Curvature = sum(g_inv[mu, nu] * Ricci[mu, nu] 
+                              for mu, nu in itertools.product(range(n), repeat=2))
+        Scalar_Curvature = sp.simplify(Scalar_Curvature)
 
         print("\nScalar curvature:", Scalar_Curvature)
 

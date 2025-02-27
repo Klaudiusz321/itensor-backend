@@ -202,28 +202,30 @@ def calculate_view(request):
         if not metric_text:
             return JsonResponse({'error': 'Missing metric_text'}, status=400)
             
-        # Zamiast StreamingHttpResponse użyjmy zwykłego JsonResponse
+        # Walidacja przed obliczeniami
         try:
-            # Rozpocznij obliczenia w osobnym wątku z timeoutem
-            with ThreadPoolExecutor() as executor:
-                future = executor.submit(calculate_in_background, metric_text)
-                try:
-                    result = future.result(timeout=25)  # 25 sekund timeout
-                    return JsonResponse(result)
-                except TimeoutError:
-                    return JsonResponse({
-                        'error': 'Calculations took too long',
-                        'status': 'timeout'
-                    }, status=408)
-                    
-        except Exception as e:
-            logger.error(f"Calculation error: {e}", exc_info=True)
-            return JsonResponse({
-                'error': str(e),
-                'status': 'error'
-            }, status=500)
-            
+            metric_text = validate_metric_text(metric_text)
+        except ValueError as e:
+            return JsonResponse({'error': str(e)}, status=400)
+
+        # Użyj dłuższego timeoutu dla bardziej skomplikowanych metryk
+        timeout = 60 if metric_text.count('^') > 20 else 30
+        
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(calculate_in_background, metric_text)
+            try:
+                result = future.result(timeout=timeout)
+                return JsonResponse(result)
+            except TimeoutError:
+                return JsonResponse({
+                    'error': 'Calculations took too long',
+                    'status': 'timeout'
+                }, status=408)
+                
     except Exception as e:
-        logger.error(f"Request error: {e}", exc_info=True)
-        return JsonResponse({'error': str(e)}, status=400)
+        logger.error(f"Calculation error: {e}", exc_info=True)
+        return JsonResponse({
+            'error': str(e),
+            'status': 'error'
+        }, status=500)
 
