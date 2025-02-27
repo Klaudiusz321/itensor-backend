@@ -1,4 +1,4 @@
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import json
@@ -10,30 +10,19 @@ from myproject.utilis.calcualtion import (
     generate_output
 )
 import sympy as sp
-import uuid
-from concurrent.futures import ThreadPoolExecutor
-from threading import Thread
-import asyncio
-import time
-from functools import lru_cache
-import hashlib
 
 logger = logging.getLogger(__name__)
 
 def convert_sympy_obj(obj):
-    """Konwertuje obiekty Sympy do standardowych typów Pythona"""
     if hasattr(obj, 'free_symbols') and obj.free_symbols:
-        # Jeśli wyrażenie zawiera symbole, zwróć jako string
         return str(obj)
     elif hasattr(obj, 'evalf'):
         try:
-            # Spróbuj przekonwertować do float/int
             value = float(obj.evalf())
             if value.is_integer():
                 return int(value)
             return value
         except Exception:
-            # Jeśli nie można przekonwertować, zwróć jako string
             return str(obj)
     elif isinstance(obj, dict):
         return {k: convert_sympy_obj(v) for k, v in obj.items()}
@@ -47,9 +36,6 @@ def convert_sympy_obj(obj):
 
 def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvature, wspolrzedne, parametry) -> dict:
     try:
-        if not output_text:
-            raise ValueError("Empty output text")
-            
         sections = {
             'metric': [],
             'christoffel': [],
@@ -59,7 +45,6 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'scalar': []
         }
         
-        # Parsowanie sekcji z output_text
         current_section = None
         lines = output_text.split('\n')
         
@@ -71,7 +56,7 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
         }
         
         for line in lines:
-            if '\\(' in line:  # Linia zawiera LaTeX
+            if '\\(' in line:
                 latex_content = line[line.find('\\('):line.find('\\)')+2]
                 if current_section == 'christoffel':
                     latex_sections['christoffelLatex'].append(latex_content)
@@ -85,7 +70,6 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
                 if current_section:
                     sections[current_section].append(line.strip())
             
-            # Aktualizacja current_section
             if "Metric tensor components" in line:
                 current_section = 'metric'
             elif "Christoffel symbols" in line:
@@ -99,7 +83,6 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             elif "Scalar curvature" in line:
                 current_section = 'scalar'
 
-        # Konwertuj wyniki przed zwróceniem
         result = {
             'metric': sections['metric'],
             'christoffel': sections['christoffel'],
@@ -135,86 +118,6 @@ def parse_metric_output(output_text: str, g, Gamma, R_abcd, Ricci, Scalar_Curvat
             'details': str(e)
         }
 
-def optimize_tensor_memory(tensor):
-    """Optymalizuje zużycie pamięci przez tensory"""
-    if isinstance(tensor, sp.Matrix):
-        # Konwertuj tylko niezerowe elementy
-        return {(i,j): tensor[i,j] for i in range(tensor.rows) 
-                for j in range(tensor.cols) if tensor[i,j] != 0}
-    return tensor
-
-def calculate_in_background(metric_text):
-    try:
-        logger.info("Starting calculations...")
-        
-        # Parsowanie metryki
-        try:
-            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-            logger.info("Parsing complete")
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': f"Metric parsing error: {str(e)}"
-            }
-        
-        # Obliczenia tensorów
-        try:
-            n = len(wspolrzedne)
-            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-            logger.info("Tensor calculations complete")
-            
-            if g.det() == 0:
-                return {
-                    'status': 'error',
-                    'error': "Metric tensor is singular"
-                }
-                
-            g_inv = g.inv()
-            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
-            logger.info("Einstein tensor calculated")
-            
-            output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
-            result = parse_metric_output(
-                output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
-                wspolrzedne, parametry
-            )
-            
-            if result.get('error'):
-                return {
-                    'status': 'error',
-                    'error': result['error']
-                }
-            
-            logger.info("Calculations complete")
-            return {
-                'status': 'completed',
-                'result': result
-            }
-            
-        except Exception as e:
-            logger.error(f"Calculation error: {str(e)}", exc_info=True)
-            return {
-                'status': 'error',
-                'error': str(e)
-            }
-        
-    except Exception as e:
-        logger.error(f"Background calculation error: {e}", exc_info=True)
-        return {
-            'status': 'error',
-            'error': str(e)
-        }
-
-def validate_metric_text(metric_text):
-    if len(metric_text) > 5000:  # Maksymalna długość
-        raise ValueError("Metric text too long")
-    
-    # Sprawdź złożoność wyrażeń
-    if metric_text.count('^') > 50:  # Zbyt wiele potęg
-        raise ValueError("Expression too complex")
-        
-    return metric_text
-
 @csrf_exempt
 @require_POST
 def calculate_view(request):
@@ -224,31 +127,51 @@ def calculate_view(request):
         
         if not metric_text:
             return JsonResponse({'error': 'Missing metric_text'}, status=400)
-            
-        # Walidacja przed obliczeniami
-        try:
-            metric_text = validate_metric_text(metric_text)
-        except ValueError as e:
-            return JsonResponse({'error': str(e)}, status=400)
 
-        # Użyj dłuższego timeoutu dla bardziej skomplikowanych metryk
-        timeout = 60 if metric_text.count('^') > 20 else 30
-        
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(calculate_in_background, metric_text)
-            try:
-                result = future.result(timeout=timeout)
-                return JsonResponse(result)
-            except TimeoutError:
+        # Parsowanie metryki
+        try:
+            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
+        except Exception as e:
+            return JsonResponse({
+                'error': f"Metric parsing error: {str(e)}"
+            }, status=400)
+
+        # Obliczenia tensorów
+        try:
+            n = len(wspolrzedne)
+            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+            
+            if g.det() == 0:
                 return JsonResponse({
-                    'error': 'Calculations took too long',
-                    'status': 'timeout'
-                }, status=408)
+                    'error': "Metric tensor is singular"
+                }, status=400)
                 
+            g_inv = g.inv()
+            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
+            
+            output = generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n)
+            result = parse_metric_output(
+                output, g, Gamma, R_abcd, Ricci, Scalar_Curvature,
+                wspolrzedne, parametry
+            )
+            
+            if result.get('error'):
+                return JsonResponse(result, status=400)
+            
+            return JsonResponse({
+                'status': 'completed',
+                'result': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Calculation error: {str(e)}", exc_info=True)
+            return JsonResponse({
+                'error': str(e)
+            }, status=400)
+        
     except Exception as e:
-        logger.error(f"Calculation error: {e}", exc_info=True)
+        logger.error(f"Request error: {str(e)}", exc_info=True)
         return JsonResponse({
-            'error': str(e),
-            'status': 'error'
-        }, status=500)
+            'error': str(e)
+        }, status=400)
 
