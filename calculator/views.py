@@ -3,13 +3,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 import json
 import logging
-from myproject.utilis.calcualtion import (
-    oblicz_tensory, 
-    compute_einstein_tensor, 
-    wczytaj_metryke_z_tekstu,
-    compute_weyl_tensor
-)
+from celery.result import AsyncResult
 import sympy as sp
+from calculator.tasks import compute_tensors_task
+from django.views.decorators.http import require_GET
+from celery.result import AsyncResult
 
 logger = logging.getLogger(__name__)
 
@@ -21,82 +19,64 @@ def convert_to_latex(obj):
 @csrf_exempt
 @require_POST
 def calculate_view(request):
-    try:
-        data = json.loads(request.body)
-        metric_text = data.get('metric_text')
-        
-        if not metric_text:
-            return JsonResponse({'error': 'Missing metric_text'}, status=400)
-
-        # Parsowanie metryki
+    """
+    Widok: przyjmuje metric_text, uruchamia asynchroniczne zadanie Celery,
+    zwraca task_id do sprawdzenia statusu lub pobrania wyniku.
+    """
+    if request.method == 'POST':
         try:
-            wspolrzedne, parametry, metryka = wczytaj_metryke_z_tekstu(metric_text)
-        except Exception as e:
-            return JsonResponse({
-                'error': f"Metric parsing error: {str(e)}"
-            }, status=400)
+            data = json.loads(request.body)
+            metric_text = data.get('metric_text')
+            if not metric_text:
+                return JsonResponse({'error': 'Missing metric_text'}, status=400)
 
-        # Obliczenia tensorów
-        try:
-            n = len(wspolrzedne)
-            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
-            Weyl = compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, len(wspolrzedne))
+            # Uruchom zadanie Celery w tle
+            task = compute_tensors_task.delay(metric_text)
 
-            
-            if g.det() == 0:
-                return JsonResponse({
-                    'error': "Metric tensor is singular"
-                }, status=400)
-                
-            g_inv = g.inv()
-            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n)
-            
-            result = {
-                'coordinates': [str(coord) for coord in wspolrzedne],
-                'parameters': [str(param) for param in parametry],
-                'metric': [f"g_{{{i}{j}}} = {convert_to_latex(g[i,j])}" 
-                         for i in range(n) for j in range(n) 
-                         if g[i,j] != 0],
-                'christoffel': [f"\\Gamma^{{{k}}}_{{{i}{j}}} = {convert_to_latex(Gamma[k][i][j])}"
-                              for k in range(n) 
-                              for i in range(n) 
-                              for j in range(n) 
-                              if Gamma[k][i][j] != 0],
-                'riemann': [f"R_{{{a}{b}{c}{d}}} = {convert_to_latex(R_abcd[a][b][c][d])}"
-                           for a in range(n) 
-                           for b in range(n) 
-                           for c in range(n) 
-                           for d in range(n) 
-                           if R_abcd[a][b][c][d] != 0],
-                'ricci': [f"R_{{{i}{j}}} = {convert_to_latex(Ricci[i,j])}"
-                         for i in range(n) 
-                         for j in range(n) 
-                         if Ricci[i,j] != 0],
-                'einstein': [f"G_{{{i}{j}}} = {convert_to_latex(G_lower[i,j])}"
-                            for i in range(n) 
-                            for j in range(n) 
-                            if G_lower[i,j] != 0],
-                'scalar': [f"R = {convert_to_latex(Scalar_Curvature)}"],
-                'Weyl': [f"C_{{{i}{j}{k}{l}}} = {convert_to_latex(Weyl[i][j][k][l])}"
-                         for i in range(n) 
-                         for j in range(n) 
-                         for k in range(n) 
-                         for l in range(n) 
-                         if Weyl[i][j][k][l] != 0],
-                
-            }
-            
-            return JsonResponse(result)
-            
+            # Zwróć ID zadania, aby klient mógł sprawdzić status
+            return JsonResponse({'task_id': task.id, 'status': 'processing'}, status=202)
+
         except Exception as e:
-            logger.error(f"Calculation error: {str(e)}", exc_info=True)
-            return JsonResponse({
-                'error': str(e)
-            }, status=400)
-        
-    except Exception as e:
-        logger.error(f"Request error: {str(e)}", exc_info=True)
+            logger.error(f"Request error: {str(e)}", exc_info=True)
+            return JsonResponse({'error': str(e)}, status=400)
+
+    return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+
+def task_status_view(request, task_id):
+    """
+    Endpoint do sprawdzania stanu zadania Celery (opcjonalny).
+    """
+    task_result = AsyncResult(task_id)
+    if task_result.state == 'PENDING':
+        # Zadanie nie rozpoczęło się jeszcze
+        return JsonResponse({'task_id': task_id, 'state': 'PENDING'})
+
+    elif task_result.state == 'FAILURE':
+        # Zadanie zakończyło się niepowodzeniem
         return JsonResponse({
-            'error': str(e)
-        }, status=400)
+            'task_id': task_id,
+            'state': 'FAILURE',
+            'error': str(task_result.result),
+        })
 
+    elif task_result.state == 'SUCCESS':
+        # Zadanie zakończyło się sukcesem, w .result mamy dane
+        return JsonResponse({
+            'task_id': task_id,
+            'state': 'SUCCESS',
+            'result': task_result.result  # Twój słownik z tensorami
+        })
+
+    else:
+        # IN PROGRESS lub RETRY
+        return JsonResponse({'task_id': task_id, 'state': task_result.state})
+    
+@require_GET
+def task_status_view(request, task_id):
+    task_result = AsyncResult(task_id)
+    return JsonResponse({
+        'task_id': task_id,
+        'state': task_result.state,
+        'result': task_result.result,
+    })

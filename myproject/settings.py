@@ -205,6 +205,8 @@ LOGGING = {
         },
     },
 }
-
+CELERY_BROKER_URL = 'rediss://:AW2KAAIjcDExNzQ3MzUxMDY5NDQ0ZGYzYWU2YzM2ZmM1MjZmN2Q2Y3AxMA@legal-gibbon-28042.upstash.io:12345?ssl_cert_reqs=CERT_REQUIRED'
+CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 # Aktywuj django-heroku
 django_heroku.settings(locals())
+
