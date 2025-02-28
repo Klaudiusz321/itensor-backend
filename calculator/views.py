@@ -11,10 +11,7 @@ from celery.result import AsyncResult
 
 logger = logging.getLogger(__name__)
 
-def convert_to_latex(obj):
-    if isinstance(obj, (sp.Basic, sp.Expr, sp.Matrix)):
-        return sp.latex(obj)
-    return str(obj)
+
 
 @csrf_exempt
 @require_POST
