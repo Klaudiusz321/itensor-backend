@@ -3,6 +3,5 @@ from . import views
 
 urlpatterns = [
     path('calculate', views.calculate_view, name='calculate'),
-    # Tymczasowo wyłączamy endpoint visualize
-    # path('visualize', views.visualize_view, name='visualize'),
+    path('task_status/<str:task_id>/', views.task_status_view, name='task_status'),
 ]
