@@ -1,7 +1,29 @@
 import sympy as sp
 import numpy as np
-from ..simplification import custom_simplify
-def generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n):
+from .simplification import custom_simplify
+import logging
+
+def generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n, Weyl=None):
+    """
+    Generuje wynikowy tekst na podstawie obliczonych tensorów.
+    
+    Parametry:
+    g - tensor metryczny
+    Gamma - symbole Christoffela
+    R_abcd - tensor Riemanna
+    Ricci - tensor Ricciego
+    Scalar_Curvature - krzywizna skalarna
+    G_upper - tensor Einsteina z podniesionymi indeksami
+    G_lower - tensor Einsteina z opuszczonymi indeksami
+    n - wymiar przestrzeni
+    Weyl - tensor Weyla (opcjonalny)
+    
+    Zwraca:
+    Sformatowany tekst z wynikami obliczeń.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"Generowanie wyników dla przestrzeni {n}-wymiarowej")
+    
     lines = []
 
     # METRYKA
@@ -57,63 +79,46 @@ def generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower,
         lines.append("Scalar curvature R:")
         lines.append(f"R = {Scalar_Curvature}")
         lines.append(f"R = \\({sp.latex(Scalar_Curvature)}\\)")
+
+    # TENSOR WEYLA
+    if Weyl is not None:
+        lines.append("Non-zero Weyl tensor components:")
+        has_nonzero_weyl = False
         
+        for i in range(n):
+            for j in range(n):
+                for k in range(n):
+                    for l in range(n):
+                        val = custom_simplify(Weyl[i][j][k][l])
+                        if val != 0:
+                            has_nonzero_weyl = True
+                            lines.append(f"C_{i}{j}{k}{l} = {val}")
+                            lines.append(f"C_{{{i}{j}{k}{l}}} = \\({sp.latex(val)}\\)")
+        
+        if not has_nonzero_weyl:
+            # Jeśli wszystkie komponenty są zerowe, dodaj specjalną notatkę
+            lines.append("Wszystkie komponenty tensora Weyla są zerowe.")
+            lines.append("C_{ijkl} = 0 dla wszystkich indeksów.")
+            
+            # Sprawdź czy to może być metryka FLRW
+            if n == 4:
+                # Sprawdź charakterystyczne cechy FLRW
+                if abs(g[0,0] + 1) < 1e-10:  # g_00 = -1
+                    diag_only = True
+                    for i in range(n):
+                        for j in range(n):
+                            if i != j and abs(g[i,j]) > 1e-10:
+                                diag_only = False
+                                break
+                    if diag_only:
+                        lines.append("Zerowy tensor Weyla sugeruje, że to jest metryka FLRW (jednorodna i izotropowa przestrzeń).")
+            
+            # Ogólna informacja o interpretacji
+            lines.append("Zerowy tensor Weyla oznacza, że przestrzeń jest lokalnie konforemnie płaska.")
+    else:
+        lines.append("Tensor Weyla nie został obliczony.")
 
     return "\n".join(lines)
-
-
-
-def generate_numerical_curvature(Scalar_Curvature, wspolrzedne, parametry, ranges, points_per_dim=50):
-    """
-    Generuje numeryczne wartości krzywizny dla wizualizacji
-    """
-    try:
-        # Konwertujemy wyrażenie symboliczne na funkcję numeryczną
-        scalar_curvature_fn = sp.lambdify(list(wspolrzedne) + list(parametry), Scalar_Curvature, modules=['numpy'])
-        
-        # Tworzymy siatki punktów dla każdej współrzędnej
-        coordinate_grids = []
-        for coord, (min_val, max_val) in zip(wspolrzedne, ranges):
-            grid = np.linspace(min_val, max_val, points_per_dim)
-            coordinate_grids.append(grid)
-        
-        # Tworzymy siatkę punktów
-        mesh_grids = np.meshgrid(*coordinate_grids)
-        points = np.vstack([grid.flatten() for grid in mesh_grids]).T
-        
-        # Obliczamy wartości krzywizny dla każdego punktu
-        curvature_values = []
-        for point in points:
-            try:
-                # Dodajemy wartości parametrów (np. masa M dla metryki Schwarzschilda)
-                full_point = list(point) + [1.0]  # 1.0 to domyślna wartość parametru (np. M)
-                value = float(scalar_curvature_fn(*full_point))
-                if np.isfinite(value):
-                    curvature_values.append(value)
-                else:
-                    curvature_values.append(0)
-            except Exception as e:
-                print(f"Error calculating point {point}: {e}")
-                curvature_values.append(0)
-        
-        curvature_values = np.array(curvature_values)
-        
-        # Normalizacja wartości
-        valid_values = curvature_values[np.isfinite(curvature_values)]
-        if len(valid_values) > 0:
-            vmin, vmax = np.percentile(valid_values, [5, 95])
-            curvature_values = np.clip(curvature_values, vmin, vmax)
-        
-        return {
-            'points': points.tolist(),
-            'values': curvature_values.tolist(),
-            'ranges': ranges,
-            'coordinates': [str(coord) for coord in wspolrzedne],
-            'parameters': [str(param) for param in parametry]
-        }
-    except Exception as e:
-        print(f"Error in generate_numerical_curvature: {e}")
-        return None
 
 
 

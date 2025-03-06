@@ -205,8 +205,10 @@ LOGGING = {
         },
     },
 }
-CELERY_BROKER_URL = 'rediss://:AW4bAQIncDE5Y2NkM2FhMGMwNDk0NWVjYWY5OGFlODhkMTU1YTk4MXAxMjgxODc@natural-beagle-28187.upstash.io:6379?ssl_cert_reqs=CERT_REQUIRED'
-CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+
 # Aktywuj django-heroku
 django_heroku.settings(locals())
+
+# Ustawienie APPEND_SLASH na False, aby zapobiec problemom z przekierowaniami POST
+APPEND_SLASH = False
 

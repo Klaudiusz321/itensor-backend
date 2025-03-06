@@ -1,122 +1,120 @@
 import sympy as sp
+import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 def wczytaj_metryke_z_tekstu(metric_text: str):
-    try:
-        print("\n=== Parsing metric text ===")
-        print("Input text:", metric_text)
-        
-        # Słownik dla symboli z dodatkowymi założeniami
-        symbol_assumptions = {
-            'a': dict(real=True, positive=True),
-            't': dict(real=True),
-            'tau': dict(real=True),
-            'psi': dict(real=True),
-            'theta': dict(real=True),
-            'phi': dict(real=True),
-            'chi': dict(real=True),
-            'k': dict(real=True),
-        }
-
-        def create_symbol(sym_name):
-            try:
-                sym_name = sym_name.strip()
-                if not sym_name:
-                    raise ValueError("Empty symbol name")
-                    
-                if sym_name in symbol_assumptions:
-                    return sp.Symbol(sym_name, **symbol_assumptions[sym_name])
-                return sp.Symbol(sym_name)
-            except Exception as e:
-                print(f"Error creating symbol {sym_name}: {e}")
-                raise
-
-        wspolrzedne = []
-        parametry = []
-        metryka = {}
-
-        # Podziel tekst na linie i usuń komentarze i puste linie
-        lines = [line.split('#')[0].strip() for line in metric_text.split('\n')]
-        lines = [line for line in lines if line]
-
-        if not lines:
-            raise ValueError("No valid lines in input")
-
-        # Parsuj pierwszą linię - współrzędne i parametry
-        first_line = lines[0]
-        if ';' in first_line:
-            wsp_, prm_ = first_line.split(';')
-            # Parsuj współrzędne
-            wsp_strs = [sym.strip() for sym in wsp_.split(',') if sym.strip()]
-            wspolrzedne = [create_symbol(s) for s in wsp_strs]
+    """
+    Wczytuje metrykę z tekstu w formacie:
+    x, y, z;
+    0 0 -1
+    1 1 r**2
+    ...
+    
+    Zwraca:
+    - listę współrzędnych
+    - słownik z elementami metryki w formacie (i,j) -> wartość
+    - słownik z oryginalnymi wyrażeniami tekstowymi
+    """
+    lines = metric_text.strip().split('\n')
+    if not lines:
+        logger.error("Pusty tekst metryki")
+        raise ValueError("Pusty tekst metryki")
+    
+    # Wczytaj współrzędne z pierwszej linii
+    coords_line = lines[0].strip()
+    if ';' in coords_line:
+        coords_text = coords_line.split(';')[0]
+        wspolrzedne = [x.strip() for x in coords_text.split(',')]
+        start_line = 1
+    else:
+        # Jeśli nie ma średnika, zakładamy domyślne współrzędne
+        wspolrzedne = ['x', 'y', 'z', 't']
+        start_line = 0
+    
+    # Liczba współrzędnych to wymiar przestrzeni
+    n = len(wspolrzedne)
+    logger.info(f"Wykryto {n} współrzędne: {', '.join(wspolrzedne)}")
+    
+    # Słownik z symbolami
+    local_dict = {}
+    
+    # Zdefiniujmy podstawowe symbole
+    for coord in wspolrzedne:
+        local_dict[coord] = sp.Symbol(coord)
+    
+    # Dodajmy często używane symbole
+    for sym in ['a', 'b', 'c', 'k', 'r', 'theta', 'phi', 'chi']:
+        if sym not in local_dict:
+            local_dict[sym] = sp.Symbol(sym)
+    
+    # Zdefiniujmy funkcję a(t) bezpośrednio
+    t = local_dict['t']
+    local_dict['a'] = sp.Function('a')(t)
+    
+    # Dodajmy funkcje trygonometryczne
+    for func_name in ['sin', 'cos', 'tan', 'cot']:
+        local_dict[func_name] = getattr(sp, func_name)
+    
+    # Przechowujemy oryginalne tekstowe reprezentacje wyrażeń metryki
+    original_expressions = {}
+    
+    # Tworzenie słownika metryki
+    metryka = {}
+    for line_num, line in enumerate(lines[start_line:], start=start_line+1):
+        line = line.strip()
+        if not line:  # Pomijamy puste linie
+            continue
             
-            # Parsuj parametry
-            prm_ = prm_.strip()
-            if prm_:
-                par_strs = [sym.strip() for sym in prm_.split(',') if sym.strip()]
-                parametry = [create_symbol(s) for s in par_strs]
-        else:
-            raise ValueError("First line must contain coordinates and parameters separated by ';'")
+        # Znajdujemy pierwsze dwa numery (indeksy) i resztę traktujemy jako wyrażenie
+        parts = line.split(maxsplit=2)  # Dzielimy na maksymalnie 3 części
+        if len(parts) != 3:
+            raise ValueError(f"Błąd w linii {line_num}: Każda linia powinna zawierać indeks i, indeks j oraz wyrażenie g_ij")
+            
+        try:
+            i, j = int(parts[0]), int(parts[1])
+            if i >= n or j >= n or i < 0 or j < 0:
+                raise ValueError(f"Błąd w linii {line_num}: Indeksy (i,j)=({i},{j}) poza zakresem [0,{n-1}]")
+            
+            # Zapisujemy oryginalny tekst wyrażenia
+            original_expressions[(i, j)] = parts[2]
+            original_expressions[(j, i)] = parts[2]  # symetria
+            
+            # Specjalna obsługa dla wyrażeń zawierających a(t)
+            expr_str = parts[2]
+            if "a(t)" in expr_str:
+                # Zastąp a(t) przez a, które jest już zdefiniowane jako funkcja symboliczna
+                expr_str = expr_str.replace("a(t)", "a")
+            
+            # Konwertujemy na wyrażenie SymPy do obliczeń
+            try:
+                value = sp.sympify(expr_str, locals=local_dict)
+                metryka[(i,j)] = value
+                metryka[(j,i)] = value  # metryka jest symetryczna
+            except Exception as e:
+                logger.error(f"Błąd parsowania wyrażenia '{expr_str}' w linii {line_num}: {str(e)}")
+                raise ValueError(f"Nie można zinterpretować wyrażenia '{parts[2]}' w linii {line_num}")
+            
+        except ValueError as e:
+            if "invalid literal for int()" in str(e):
+                raise ValueError(f"Błąd w linii {line_num}: Indeksy muszą być liczbami całkowitymi")
+            raise
+        except Exception as e:
+            raise ValueError(f"Błąd przetwarzania metryki w linii: {line}") from e
 
-        print("Parsed coordinates:", [str(w) for w in wspolrzedne])
-        print("Parsed parameters:", [str(p) for p in parametry])
+    if not metryka:
+        raise ValueError("Nie znaleziono żadnych komponentów metryki")
 
-        # Stwórz słownik symboli dla parsowania wyrażeń
-        symbols_dict = {str(sym): sym for sym in wspolrzedne + parametry}
-        symbols_dict.update({
-            'sin': sp.sin,
-            'cos': sp.cos,
-            'tan': sp.tan,
-            'exp': sp.exp,
-            'M': sp.Symbol('M', real=True, positive=True)
-        })
+    # Sprawdzanie kompletności metryki
+    for i in range(n):
+        for j in range(n):
+            if (i,j) not in metryka:
+                metryka[(i,j)] = 0
+                metryka[(j,i)] = 0
+                original_expressions[(i, j)] = "0"
+                original_expressions[(j, i)] = "0"
 
-        # Parsuj komponenty metryki
-        for line in lines[1:]:
-            if 'g_{' in line and '=' in line:
-                # Format g_{ij} = expr
-                try:
-                    indices = line[line.find('{')+1:line.find('}')]
-                    i, j = map(int, indices)
-                    expr = line.split('=')[1].strip()
-                    expr_sympy = sp.sympify(expr, locals=symbols_dict)
-                    metryka[(i, j)] = expr_sympy
-                    metryka[(j, i)] = expr_sympy  # symetria
-                    print(f"Added metric component ({i},{j}): {expr}")
-                except Exception as e:
-                    print(f"Error parsing line '{line}': {e}")
-                    raise ValueError(f"Invalid metric component format: {line}")
-            else:
-                # Format: i j expr
-                try:
-                    parts = line.split(maxsplit=2)
-                    if len(parts) == 3:
-                        i, j, expr = int(parts[0]), int(parts[1]), parts[2]
-                        expr_sympy = sp.sympify(expr, locals=symbols_dict)
-                        metryka[(i, j)] = expr_sympy
-                        metryka[(j, i)] = expr_sympy  # symetria
-                        print(f"Added metric component ({i},{j}): {expr}")
-                except Exception as e:
-                    print(f"Error parsing line '{line}': {e}")
-                    continue
-
-        # Uzupełnij brakujące komponenty metryki
-        n = len(wspolrzedne)
-        full_metric = {}
-        for i in range(n):
-            for j in range(n):
-                if (i, j) in metryka:
-                    full_metric[(i, j)] = metryka[(i, j)]
-                elif (j, i) in metryka:
-                    full_metric[(i, j)] = metryka[(j, i)]
-                else:
-                    # Dla metryki diagonalnej, zakładamy 0 dla elementów pozadiagonalnych
-                    full_metric[(i, j)] = 0 if i != j else 1
-
-        print("Final metric components:", len(full_metric))
-        print("Full metric:", full_metric)
-
-        return wspolrzedne, parametry, full_metric
-
-    except Exception as e:
-        print(f"Error in wczytaj_metryke_z_tekstu: {str(e)}")
-        raise ValueError(f"Metric parsing error: {str(e)}")
+    logger.info(f"Metryka sparsowana pomyślnie. Wymiar: {n}")
+    
+    return wspolrzedne, metryka, original_expressions
