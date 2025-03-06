@@ -7,10 +7,7 @@ from fractions import Fraction
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
-import traceback  # Dodaję brakujący import
-
-# Usuwam import AsyncResult z Celery
-# from celery.result import AsyncResult
+import traceback
 
 # Poprawię ścieżkę importu - mogą być literówki w nazwie katalogów
 try:
@@ -28,19 +25,31 @@ except ImportError:
             # Próbujemy wszystkie możliwe kombinacje
             from myproject.utilis.calculation.parse_metric import wczytaj_metryke_z_tekstu
 
-from myproject.utilis.calcualtion.compute_tensor import (
-    oblicz_tensory,
-    compute_einstein_tensor,
-    compute_weyl_tensor
-)
+try:
+    from myproject.utilis.calcualtion.compute_tensor import (
+        oblicz_tensory,
+        compute_einstein_tensor,
+        compute_weyl_tensor
+    )
+except ImportError:
+    from myproject.utilis.calculation.compute_tensor import (
+        oblicz_tensory,
+        compute_einstein_tensor,
+        compute_weyl_tensor
+    )
 
-from myproject.utilis.calcualtion.simplification.custom_simplify import (
-    weyl_simplify, 
-    custom_simplify,
-    replace_inverse_trig_in_string
-)
-
-# Import funkcji obliczeniowej z tasks.py
+try:
+    from myproject.utilis.calcualtion.simplification.custom_simplify import (
+        custom_simplify,
+        replace_inverse_trig_in_string,
+        convert_to_fractions
+    )
+except ImportError:
+    from myproject.utilis.calculation.simplification.custom_simplify import (
+        custom_simplify,
+        replace_inverse_trig_in_string,
+        convert_to_fractions
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -120,27 +129,6 @@ def replace_greek_letters(expr_str):
     pattern = r'\b(?:' + '|'.join(greek_letters.keys()) + r')\b'
     return re.sub(pattern, replace_with_latex, expr_str)
 
-def convert_to_fractions(expr):
-    """Konwertuje liczby zmiennoprzecinkowe na ułamki, zastępuje odwrotne funkcje trygonometryczne
-    i zamienia nazwy greckich liter na odpowiedniki LaTeX.
-    
-    Obsługuje zarówno ciągi znaków jak i obiekty SymPy.
-    """
-    # Jeśli to obiekt SymPy, najpierw konwertujemy na string używając LaTeX
-    if not isinstance(expr, str):
-        expr_str = sp.latex(expr)
-    else:
-        expr_str = expr
-        
-    # Teraz wykonujemy wszystkie transformacje na stringu
-    # Najpierw zamieniamy liczby zmiennoprzecinkowe na ułamki
-    result = replace_floats_in_string(expr_str)
-    # Następnie zamieniamy odwrotne funkcje trygonometryczne
-    result = replace_inverse_trig_in_string(result)
-    # Na końcu zamieniamy nazwy greckich liter na symbole LaTeX
-    result = replace_greek_letters(result)
-    return result
-
 @csrf_exempt
 @require_POST
 def calculate_view(request):
@@ -153,7 +141,7 @@ def calculate_view(request):
         metric_text = data.get('metric_text', '')
         
         if not metric_text:
-            return JsonResponse({'error': 'Brak tekstu metryki'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Brak tekstu metryki'}, status=400)
             
         logger.info(f"Otrzymano request z metryką: {metric_text[:100]}...")
         
@@ -164,10 +152,10 @@ def calculate_view(request):
         return JsonResponse(result, safe=False)
             
     except json.JSONDecodeError:
-        return JsonResponse({'error': 'Nieprawidłowy format JSON'}, status=400)
+        return JsonResponse({'success': False, 'error': 'Nieprawidłowy format JSON'}, status=400)
     except Exception as e:
         logger.error(f"Nieoczekiwany błąd: {str(e)}", exc_info=True)
-        return JsonResponse({'error': f'Nieoczekiwany błąd: {str(e)}'}, status=500)
+        return JsonResponse({'success': False, 'error': f'Nieoczekiwany błąd: {str(e)}'}, status=500)
 
 @require_GET
 def health_check(request):
@@ -236,67 +224,36 @@ def compute_tensors_task(metric_text: str):
             # Obliczamy tensory
             g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
             
-            # Sprawdzamy, czy otrzymaliśmy poprawne typy danych
-            if not isinstance(Ricci, (dict, list, sp.Matrix)):
-                logger.warning(f"Tensor Ricciego nie jest indeksowalny. Typ: {type(Ricci)}")
-                # Jeśli tensor Ricciego nie jest indeksowalny, traktujemy go jako pojedynczą wartość
-                ricci_components = {(0, 0): Ricci}
-            elif isinstance(Ricci, sp.Matrix):
-                # Jeśli Ricci jest obiektem Matrix, konwertujemy go na słownik
-                ricci_components = {}
-                for i in range(Ricci.rows):
-                    for j in range(Ricci.cols):
-                        ricci_components[(i, j)] = Ricci[i, j]
-            elif isinstance(Ricci, dict):
-                # Jeśli Ricci jest słownikiem, używamy go bezpośrednio
-                ricci_components = Ricci
-            else:
-                # Jeśli Ricci jest listą, konwertujemy go na słownik
-                ricci_components = {}
-                for i in range(len(Ricci)):
-                    for j in range(len(Ricci[i])):
-                        ricci_components[(i, j)] = Ricci[i][j]
+            # Przygotowanie komponentów dla tensora Gamma - zawsze traktujemy jako listę 3D
+            gamma_components = {}
+            for k in range(n):
+                for i in range(n):
+                    for j in range(n):
+                        gamma_components[(k, i, j)] = Gamma[k][i][j]
             
-            # Analogicznie dla innych tensorów
-            # Przygotowanie komponentów dla tensora Gamma
-            if not isinstance(Gamma, (dict, list)):
-                gamma_components = {}
-            elif isinstance(Gamma, dict):
-                gamma_components = Gamma
-            else:
-                gamma_components = {}
-                for k in range(len(Gamma)):
-                    for i in range(len(Gamma[k])):
-                        for j in range(len(Gamma[k][i])):
-                            gamma_components[(k, i, j)] = Gamma[k][i][j]
+            # Przygotowanie komponentów dla tensora Riemanna - zawsze traktujemy jako listę 4D
+            riemann_components = {}
+            for i in range(n):
+                for j in range(n):
+                    for k in range(n):
+                        for l in range(n):
+                            riemann_components[(i, j, k, l)] = R_abcd[i][j][k][l]
             
-            # Przygotowanie komponentów dla tensora Riemanna
-            if not isinstance(R_abcd, (dict, list)):
-                riemann_components = {}
-            elif isinstance(R_abcd, dict):
-                riemann_components = R_abcd
-            else:
-                riemann_components = {}
-                for i in range(len(R_abcd)):
-                    for j in range(len(R_abcd[i])):
-                        for k in range(len(R_abcd[i][j])):
-                            for l in range(len(R_abcd[i][j][k])):
-                                riemann_components[(i, j, k, l)] = R_abcd[i][j][k][l]
+            # Przygotowanie komponentów dla tensora Ricciego - zawsze traktujemy jako Matrix
+            ricci_components = {}
+            for i in range(n):
+                for j in range(n):
+                    ricci_components[(i, j)] = Ricci[i, j]
             
             # Obliczanie tensora Einsteina
             g_inv = g.inv()
             G_upper, G_lower = compute_einstein_tensor(ricci_components, Scalar_Curvature, g, g_inv, n)
             
-            # Przygotowanie komponentów dla tensora Einsteina
-            if isinstance(G_lower, dict):
-                einstein_components = G_lower
-            elif isinstance(G_lower, list):
-                einstein_components = {}
-                for i in range(len(G_lower)):
-                    for j in range(len(G_lower[i])):
-                        einstein_components[(i, j)] = G_lower[i][j]
-            else:
-                einstein_components = {}
+            # Przygotowanie komponentów dla tensora Einsteina - zawsze traktujemy jako Matrix
+            einstein_components = {}
+            for i in range(n):
+                for j in range(n):
+                    einstein_components[(i, j)] = G_lower[i, j]
             
             # Obliczanie tensora Weyla dla n >= 3
             if n <= 3 or is_flrw:
@@ -311,21 +268,20 @@ def compute_tensors_task(metric_text: str):
                 weyl_info = "Tensor Weyla jest zerowy dla wymiaru ≤ 3" if n <= 3 else "Tensor Weyla jest zerowy dla metryki FLRW"
                 logger.info(weyl_info)
             else:
-                # Tutaj zakładamy, że compute_weyl_tensor zwraca listę lub słownik
+                # Obliczamy tensor Weyla
                 Weyl = compute_weyl_tensor(riemann_components, ricci_components, Scalar_Curvature, g, n)
                 
-                if isinstance(Weyl, dict):
-                    weyl_components = Weyl
-                else:
-                    weyl_components = {}
-                    for i in range(len(Weyl)):
-                        for j in range(len(Weyl[i])):
-                            for k in range(len(Weyl[i][j])):
-                                for l in range(len(Weyl[i][j][k])):
-                                    weyl_components[(i, j, k, l)] = Weyl[i][j][k][l]
+                # Konwertujemy tensor Weyla na słownik
+                weyl_components = {}
+                for i in range(n):
+                    for j in range(n):
+                        for k in range(n):
+                            for l in range(n):
+                                weyl_components[(i, j, k, l)] = Weyl[i][j][k][l]
             
         except Exception as e:
             logger.error(f"Błąd podczas obliczeń tensorów: {str(e)}")
+            logger.error(traceback.format_exc())
             raise ValueError(f"Błąd podczas obliczeń tensorów: {str(e)}")
         
         # Przygotuj metrykę do wyświetlenia, używając oryginalnych wyrażeń
@@ -402,13 +358,13 @@ def compute_tensors_task(metric_text: str):
         # Zwracamy tylko te pola, które są faktycznie używane przez frontend
         result = {
             "success": True,
-            "metric_display": metric_display,
-            "christoffel_display": christoffel_display,
-            "riemann_display": riemann_display,
-            "ricci_display": ricci_display,
-            "ricci_scalar_display": ricci_scalar_display,  # Tylko jedno pole dla skalara krzywizny
-            "einstein_display": einstein_display,
-            "weyl_display": weyl_display
+            "metric": metric_display,  # Używamy oryginalnych nazw pól zgodnych z frontendem
+            "christoffel": christoffel_display,
+            "riemann": riemann_display,
+            "ricci": ricci_display,
+            "ricci_scalar": ricci_scalar_display,
+            "einstein": einstein_display,
+            "weyl": weyl_display
         }
         
         logger.info("Obliczenia zakończone sukcesem")

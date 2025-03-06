@@ -12,34 +12,26 @@ def custom_simplify(expr):
         return 0
     
     try:
-        # Proste upraszczanie
         simplified = sp.simplify(expr)
         
-        # Sprawdź, czy to jest charakterystyczny wzorzec FLRW
         expr_str = str(expr)
         if "sin(2" in expr_str and "cos(2" in expr_str and "tan" in expr_str:
-            # To jest wzorzec charakterystyczny dla tensora Weyla w metryce FLRW
-            # Takie wyrażenia zawsze się zerują, ale SymPy nie zawsze to wykrywa
             logger.info("Wykryto charakterystyczny wzorzec FLRW - wymuszam zero")
             return 0
         
-        # Zamieniamy 1/tan na cot
         if isinstance(simplified, sp.Mul):
             args = simplified.args
             new_args = []
             for arg in args:
                 if isinstance(arg, sp.Pow) and isinstance(arg.args[0], sp.tan) and arg.args[1] == -1:
-                    # Znaleziono 1/tan(x), zamieniamy na cot(x)
-                    x = arg.args[0].args[0]  # Pobierz argument tangensa
+                    x = arg.args[0].args[0]
                     new_args.append(sp.cot(x))
                 else:
                     new_args.append(arg)
             
             if len(args) != len(new_args):
-                # Jeśli coś zostało zmienione, utwórz nowe wyrażenie
                 simplified = sp.Mul(*new_args)
         
-        # Próba konwersji na float aby sprawdzić, czy wynik jest bliski zeru
         try:
             float_val = float(simplified.evalf())
             if abs(float_val) < 1e-10:
@@ -128,15 +120,83 @@ def weyl_simplify(Weyl, n):
     
     return simplified_Weyl
 
+def replace_floats_in_string(expr_str):
+    """
+    Zastępuje liczby zmiennoprzecinkowe w ciągu znaków ich odpowiednikami w postaci ułamków.
+    """
+    # Wzorzec regex do wyszukiwania liczb zmiennoprzecinkowych
+    float_pattern = r'[-+]?\d+\.\d+'
+    
+    def replace_match(match):
+        float_str = match.group(0)
+        try:
+            float_val = float(float_str)
+            from fractions import Fraction
+            frac = Fraction(float_val).limit_denominator(100)
+            if frac.denominator == 1:
+                return str(frac.numerator)
+            else:
+                return f"{frac.numerator}/{frac.denominator}"
+        except ValueError:
+            return float_str
+    
+    return re.sub(float_pattern, replace_match, expr_str)
+
+def replace_greek_letters(expr_str):
+    """
+    Zamienia nazwy greckich liter na ich odpowiedniki w LaTeX.
+    """
+    greek_letters = {
+        'alpha': 'alpha',
+        'beta': 'beta',
+        'gamma': 'gamma',
+        'delta': 'delta',
+        'epsilon': 'epsilon',
+        'zeta': 'zeta',
+        'eta': 'eta',
+        'theta': 'theta',
+        'iota': 'iota',
+        'kappa': 'kappa',
+        'lambda': 'lambda',
+        'mu': 'mu',
+        'nu': 'nu',
+        'xi': 'xi',
+        'omicron': 'omicron',
+        'pi': 'pi',
+        'rho': 'rho',
+        'sigma': 'sigma',
+        'tau': 'tau',
+        'upsilon': 'upsilon',
+        'phi': 'phi',
+        'chi': 'chi',
+        'psi': 'psi',
+        'omega': 'omega'
+    }
+    
+    # Dopasuj tylko całe słowa
+    for greek, latex in greek_letters.items():
+        expr_str = re.sub(r'\b' + greek + r'\b', f"\\{latex}", expr_str)
+    
+    return expr_str
+
 def convert_to_fractions(expr):
+    """
+    Konwertuje liczby zmiennoprzecinkowe na ułamki, zastępuje odwrotne funkcje trygonometryczne
+    i zamienia nazwy greckich liter na odpowiedniki LaTeX.
+    
+    Obsługuje zarówno ciągi znaków jak i obiekty SymPy.
+    """
     # Jeśli to obiekt SymPy, najpierw konwertujemy na string używając LaTeX
     if not isinstance(expr, str):
         expr_str = sp.latex(expr)
     else:
         expr_str = expr
-    
+        
     # Teraz wykonujemy wszystkie transformacje na stringu
+    # Najpierw zamieniamy liczby zmiennoprzecinkowe na ułamki
     result = replace_floats_in_string(expr_str)
+    # Następnie zamieniamy odwrotne funkcje trygonometryczne
     result = replace_inverse_trig_in_string(result)
+    # Na końcu zamieniamy nazwy greckich liter na symbole LaTeX
     result = replace_greek_letters(result)
     return result
