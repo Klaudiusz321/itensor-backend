@@ -121,6 +121,7 @@ USE_TZ = True
 CORS_ALLOWED_ORIGINS = [
     "https://itensor.online",
     "http://localhost:5173",
+    "http://localhost:3000",  # Add Next.js frontend
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -161,6 +162,7 @@ CORS_ALLOW_HEADERS = [
 CSRF_TRUSTED_ORIGINS = [
     "https://calculator1-fc4166db17b2.herokuapp.com",
     "https://itensor.online",
+    "http://localhost:3000",
 ]
 
 # Zwiększ timeout dla requestów

@@ -12,40 +12,40 @@ import traceback
 # Poprawię ścieżkę importu - mogą być literówki w nazwie katalogów
 try:
     # Próbujemy oryginalną ścieżkę
-    from myproject.utilis.calcualtion.prase_metric import wczytaj_metryke_z_tekstu
+    from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
 except ImportError:
     try:
         # Może jest literówka w "calcualtion"
-        from myproject.utilis.calculation.prase_metric import wczytaj_metryke_z_tekstu
+        from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
     except ImportError:
         try:
             # Może jest literówka w "prase_metric"
-            from myproject.utilis.calcualtion.parse_metric import wczytaj_metryke_z_tekstu
+            from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
         except ImportError:
             # Próbujemy wszystkie możliwe kombinacje
-            from myproject.utilis.calculation.parse_metric import wczytaj_metryke_z_tekstu
+            from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
 
 try:
-    from myproject.utilis.calcualtion.compute_tensor import (
+    from myproject.utils.symbolic.compute_tensor import (
         oblicz_tensory,
         compute_einstein_tensor,
         compute_weyl_tensor
     )
 except ImportError:
-    from myproject.utilis.calculation.compute_tensor import (
+    from myproject.utils.symbolic.compute_tensor import (
         oblicz_tensory,
         compute_einstein_tensor,
         compute_weyl_tensor
     )
 
 try:
-    from myproject.utilis.calcualtion.simplification.custom_simplify import (
+    from myproject.utils.symbolic.simplification.custom_simplify import (
         custom_simplify,
         replace_inverse_trig_in_string,
         convert_to_fractions
     )
 except ImportError:
-    from myproject.utilis.calculation.simplification.custom_simplify import (
+    from myproject.utils.symbolic.simplification.custom_simplify import (
         custom_simplify,
         replace_inverse_trig_in_string,
         convert_to_fractions
