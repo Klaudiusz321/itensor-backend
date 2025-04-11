@@ -26,14 +26,19 @@ def parse_metric_components(
         for j in range(n):
             component = metric_data[i][j]
             
-            if isinstance(component, (int, float)):
+            # Handle None, null, or empty string values by treating them as zero
+            if component is None or component == "" or component == "null":
+                logger.warning(f"Empty or null metric component at position [{i}][{j}], using default value of 0.0")
+                metric_funcs[(i, j)] = lambda coords, val=0.0: val
+            elif isinstance(component, (int, float)):
                 # For constant metric components, create a function that always returns this value
                 metric_funcs[(i, j)] = lambda coords, val=component: val
             elif isinstance(component, str):
                 # For string expressions, create a function that evaluates the expression
                 metric_funcs[(i, j)] = create_component_function(component, coordinates)
             else:
-                raise ValueError(f"Unsupported metric component type: {type(component)}")
+                logger.error(f"Unsupported metric component type: {type(component)} at position [{i}][{j}]")
+                raise ValueError(f"Unsupported metric component type: {type(component)} at position [{i}][{j}]")
     
     return metric_funcs
 
@@ -60,10 +65,19 @@ def create_component_function(expr: str, coordinates: List[str]) -> Callable:
         If the expression is empty or contains only whitespace, a function that returns 0.0 will be returned.
     """
     # Input validation - check if expression is empty or just whitespace
-    if not expr or expr.strip() == "":
-        logger.warning("Empty metric component expression provided. Using default value of 0.0.")
+    if not expr or not str(expr).strip():
+        logger.warning("Empty or whitespace-only metric component expression provided. Using default value of 0.0.")
         # Return a function that always returns 0.0 for empty expressions
         return lambda coords: 0.0
+    
+    # Try to convert numeric strings directly to floats for efficiency
+    try:
+        numeric_value = float(expr)
+        # If we can convert it to a float, just return a constant function
+        return lambda coords, val=numeric_value: val
+    except (ValueError, TypeError):
+        # Not a simple numeric value, continue with expression parsing
+        pass
     
     # Import math functions for use in the evaluation
     import math

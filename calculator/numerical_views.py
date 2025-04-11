@@ -116,6 +116,31 @@ def numerical_calculate_view(request):
                 "error": f"Evaluation point has {len(evaluation_point)} coordinates, expected {dimension}"
             }, status=400)
         
+        # Additional validation of the metric data
+        for i in range(dimension):
+            for j in range(dimension):
+                if i >= len(metric_data) or j >= len(metric_data[i]):
+                    logger.error(f"Missing metric component at position [{i}][{j}]")
+                    return JsonResponse({
+                        "success": False,
+                        "error": f"Missing metric component at position [{i}][{j}]"
+                    }, status=400)
+                
+                component = metric_data[i][j]
+                # The component can be None, empty string, numeric, or a valid string expression
+                # Actual handling of these cases is in the tensor_utils.py module
+                logger.debug(f"Metric component [{i}][{j}] = {component} (type: {type(component).__name__})")
+        
+        # Convert evaluation_point elements to float
+        try:
+            evaluation_point = [float(x) if x is not None else 0.0 for x in evaluation_point]
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid evaluation point value: {str(e)}")
+            return JsonResponse({
+                "success": False,
+                "error": f"Evaluation point contains invalid values: {str(e)}"
+            }, status=400)
+        
         # Calculate all tensors
         logger.info(f"Calculating numerical tensors for {dimension}D metric at point {evaluation_point}")
         try:
