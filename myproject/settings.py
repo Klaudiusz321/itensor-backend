@@ -120,24 +120,15 @@ USE_TZ = True
 
 CORS_ALLOWED_ORIGINS = [
     "https://itensor.online",
-    "http://localhost:5173",
-    "http://localhost:3000",  # Add Next.js frontend
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
+# Temporarily for development, you can use:
+# CORS_ALLOW_ALL_ORIGINS = True  # Only use during development
+
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = True  # Tymczasowo dla debugowania
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.1/howto/static-files/
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-STATIC_URL = '/static/'
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
@@ -146,6 +137,7 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',
@@ -158,12 +150,25 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-# Dodaj te ustawienia
+# Add these settings
 CSRF_TRUSTED_ORIGINS = [
     "https://calculator1-fc4166db17b2.herokuapp.com",
     "https://itensor.online",
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.1/howto/static-files/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+STATIC_URL = '/static/'
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Zwiększ timeout dla requestów
 VISUALIZE_TIMEOUT = 300  # 5 minut
