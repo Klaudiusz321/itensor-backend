@@ -183,7 +183,13 @@ def jacobian_matrix(transform_map: Union[List[sp.Expr], Callable],
             
             return jacobian
         else:
-            raise ValueError("transform_map must be either a list of symbolic expressions or a callable function")
+            # Provide a more detailed error message for debugging
+            if transform_map is None:
+                error_msg = "transform_map is None. It must be either a list of sympy expressions or a callable function."
+            else:
+                error_msg = f"transform_map must be either a list of sympy expressions or a callable function. " \
+                           f"Got type: {type(transform_map)}. Value: {transform_map}"
+            raise ValueError(error_msg)
 
 def metric_from_transformation(transform_map: List[sp.Expr], base_metric: sp.Matrix, 
                               coords: List[sp.Symbol]) -> sp.Matrix:

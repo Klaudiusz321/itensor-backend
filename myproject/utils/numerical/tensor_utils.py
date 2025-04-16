@@ -554,6 +554,34 @@ def calculate_all_tensors(
     
     return result
 
+def flatten_3d_array(tensor: np.ndarray) -> np.ndarray:
+    """
+    Flatten a 3D tensor into a 1D array in a consistent order.
+    
+    Args:
+        tensor: 3D NumPy array to flatten
+        
+    Returns:
+        Flattened 1D array containing all elements of the input tensor
+    """
+    if tensor.ndim != 3:
+        raise ValueError(f"Expected a 3D tensor, but got shape {tensor.shape}")
+    
+    # Get the dimensions of the tensor
+    dim1, dim2, dim3 = tensor.shape
+    
+    # Create a flattened array by iterating through indices in a consistent order
+    flattened = np.zeros(dim1 * dim2 * dim3)
+    
+    index = 0
+    for i in range(dim1):
+        for j in range(dim2):
+            for k in range(dim3):
+                flattened[index] = tensor[i, j, k]
+                index += 1
+    
+    return flattened
+
 def format_tensor_components(tensor: np.ndarray) -> Dict[str, float]:
     """
     Format a tensor's non-zero components as a dictionary with indices as keys.
