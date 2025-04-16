@@ -1,91 +1,155 @@
-# Tensor-backend-calculator
-Symbolic Tensor Calculator
-This project is a symbolic tensor calculator built with Python and SymPy. Its primary goal is to compute various tensors used in differential geometry and general relativity (including the metric tensor, Christoffel symbols, Riemann tensor, Ricci tensor, Einstein tensor, and Weyl tensor) while applying custom, advanced simplification strategies.
+# iTensor: Tensor Operations for Differential Geometry
 
-Features
-Custom Simplification:
-The program extends SymPy’s built-in simplify by adding specialized routines (such as custom replacements for inverse trigonometric functions) tailored to reduce expressions for curvature tensors. For example, it automatically detects and simplifies expressions that follow the FLRW (Friedmann–Lemaître–Robertson–Walker) pattern, setting them to zero when appropriate.
+A Python module for tensor operations and differential geometry calculations, supporting both symbolic (using SymPy) and numeric (using NumPy) computations.
 
-Tensor Computations:
-It computes a variety of tensors:
+## Features
 
-Metric Tensor – The foundation of spacetime geometry.
-Christoffel Symbols – Derived from the metric and used to compute covariant derivatives.
-Riemann Tensor – Encodes the intrinsic curvature of spacetime.
-Ricci Tensor and Scalar Curvature – Used in formulating Einstein’s field equations.
-Einstein Tensor – Combines the Ricci tensor and scalar curvature.
-Weyl Tensor – Represents the conformal curvature and is automatically simplified based on identified FLRW patterns.
-Advanced Logging and Debugging:
-Logging is integrated into the custom simplification functions to track when an expression is forced to zero or when specific simplification patterns are recognized.
+- **Coordinate Systems**: Define and work with various coordinate systems (Cartesian, spherical, cylindrical, etc.)
+- **Metric Tensors**: Compute metric tensors and their inverses
+- **Differential Operators**: Calculate gradients, divergences, curls, and Laplacians in any coordinate system
+- **Tensor Operations**: Transform tensors between coordinate systems
+- **Christoffel Symbols**: Compute Christoffel symbols and related geometric quantities
+- **Visualization**: Built-in tools for visualizing scalar and vector fields
 
-Fraction & Trigonometric Replacements:
-The module provides helper functions to replace certain inverse trigonometric forms (e.g., converting 
-1
-tan
-⁡
-(
-𝑥
+## Installation
+
+```bash
+git clone https://github.com/yourusername/Tensor-backend-calculator.git
+cd Tensor-backend-calculator
+pip install -e .
+```
+
+## Quick Start
+
+```python
+import numpy as np
+import sympy as sp
+from myproject.utils.differential_operators import (
+    symbolic_gradient, symbolic_divergence, symbolic_laplacian,
+    numeric_gradient, numeric_divergence, numeric_laplacian,
+    spherical_coordinates, cartesian_to_spherical, spherical_to_cartesian
 )
-tan(x)
-1
-​
-  into 
-cot
-⁡
-(
-𝑥
-)
-cot(x)) and to manage conversion of floats to their fractional representations. These routines help ensure that the symbolic output is as clean and minimal as possible.
 
-How It Works
-Custom Simplify Function:
-The custom_simplify(expr) function first attempts a general simplification using SymPy’s simplify(). Then, it examines the resulting expression for specific patterns (for example, checking for the combination of sine, cosine, and tangent that typically appears in FLRW models). If such a pattern is detected, the function logs the occurrence and forces the result to zero. It also replaces terms like 
-1
-/
-tan
-⁡
-(
-𝜃
-)
-1/tan(θ) with 
-cot
-⁡
-(
-𝜃
-)
-cot(θ) to further simplify the expression.
+# Symbolic example (using SymPy)
+# -----------------------------
+# Define spherical coordinates
+r, theta, phi = sp.symbols('r theta phi', real=True, positive=True)
 
-Weyl Tensor Simplification:
-The function weyl_simplify(Weyl, n) applies custom simplification rules to the Weyl tensor. For dimensions 
-𝑛
-≤
-3
-n≤3 the tensor is automatically set to zero. In four-dimensional space, it specifically looks for FLRW patterns and sets the tensor to zero if those are found. Each nonzero component is processed by the custom_simplify function.
+# Define a scalar field
+f = r**2 * sp.sin(theta)**2 * sp.cos(phi)
 
-String-Based Replacements:
-Helper functions like replace_inverse_trig_in_string(expr_str) use regular expressions to replace inverse trigonometric expressions (and other patterns) within string representations of SymPy expressions, ensuring a cleaner LaTeX output.
+# Get the metric tensor for spherical coordinates
+g = spherical_coordinates([r, theta, phi])
 
-Fraction Conversion:
-The convert_to_fractions(expr) function converts SymPy expressions into LaTeX strings and then performs additional transformations to display fractions and trigonometric functions in a more conventional mathematical notation.
+# Compute the gradient of the scalar field
+grad_f = symbolic_gradient(f, g, [r, theta, phi])
 
-Requirements
-Python 3.11 or later
-SymPy
-(Optional) A logging setup for debugging and tracking the simplification process
+# Compute the Laplacian
+laplacian_f = symbolic_laplacian(f, g, [r, theta, phi])
 
-Getting Started
-Install Dependencies:
+# Numeric example (using NumPy)
+# ----------------------------
+# Create a 3D grid in spherical coordinates
+r_vals = np.linspace(0.1, 2.0, 20)
+theta_vals = np.linspace(0.1, np.pi-0.1, 20)
+phi_vals = np.linspace(0, 2*np.pi-0.1, 20)
+r_grid, theta_grid, phi_grid = np.meshgrid(r_vals, theta_vals, phi_vals, indexing='ij')
+grid = [r_grid, theta_grid, phi_grid]
 
-bash
-Copy
-pip install sympy
-Run the Calculator:
+# Define a scalar field on the grid
+scalar_field = r_grid**2 * np.sin(theta_grid)**2 * np.cos(phi_grid)
 
-Import and use the provided functions in your project to compute the tensors for a given metric. The module is designed to be integrated into a larger application, such as a web-based calculator.
+# Create the metric tensor
+metric = np.zeros((3, 3) + r_grid.shape)
+for i in range(r_grid.shape[0]):
+    for j in range(r_grid.shape[1]):
+        for k in range(r_grid.shape[2]):
+            r_val, theta_val = r_grid[i,j,k], theta_grid[i,j,k]
+            metric[0, 0, i, j, k] = 1.0  # g_rr = 1
+            metric[1, 1, i, j, k] = r_val**2  # g_θθ = r²
+            metric[2, 2, i, j, k] = r_val**2 * np.sin(theta_val)**2  # g_φφ = r²sin²θ
 
-Customization:
+# Compute the inverse metric
+metric_inverse = np.zeros_like(metric)
+for i in range(r_grid.shape[0]):
+    for j in range(r_grid.shape[1]):
+        for k in range(r_grid.shape[2]):
+            metric_inverse[:, :, i, j, k] = np.linalg.inv(metric[:, :, i, j, k])
 
-You can adjust the simplification routines by modifying the custom functions to suit your specific needs or to handle additional cases.
+# Compute the gradient
+gradient = numeric_gradient(scalar_field, metric_inverse, grid)
 
-Contributing
-Contributions are welcome! Feel free to open issues or pull requests if you have ideas to improve the simplification algorithms or add new features.
+# Compute the Laplacian
+laplacian = numeric_laplacian(scalar_field, metric, grid)
+```
+
+## Module Structure
+
+- `myproject/`
+  - `utils/`
+    - `differential_operators/`
+      - `__init__.py` - Package initialization and imports
+      - `symbolic.py` - Symbolic differential operators using SymPy
+      - `numeric.py` - Numeric differential operators using NumPy
+      - `transforms.py` - Coordinate transformations
+
+## Running the Examples
+
+Each module contains runnable examples that demonstrate its functionality. To run them:
+
+```bash
+# Run the main demo
+python -m myproject.utils.differential_operators
+
+# Run specific module examples
+python -m myproject.utils.differential_operators.symbolic
+python -m myproject.utils.differential_operators.numeric
+python -m myproject.utils.differential_operators.transforms
+```
+
+## Advanced Usage
+
+### Custom Coordinate Systems
+
+You can define custom coordinate systems by specifying their metric tensors:
+
+```python
+import sympy as sp
+
+# Define curvilinear coordinates
+u, v, w = sp.symbols('u v w', real=True)
+
+# Define the metric tensor components
+g_uu = 1
+g_vv = u**2
+g_ww = u**2 * sp.sin(v)**2
+
+# Create the metric tensor
+g = sp.zeros(3, 3)
+g[0, 0] = g_uu
+g[1, 1] = g_vv
+g[2, 2] = g_ww
+
+# Now you can use this metric with any differential operator
+```
+
+### Vector Fields and Tensor Operations
+
+```python
+# Define a vector field in spherical coordinates
+V = [r*sp.sin(theta), r*sp.cos(theta), 0]
+
+# Compute the divergence
+div_V = symbolic_divergence(V, g, [r, theta, phi])
+
+# Compute the curl (for 3D vector fields)
+curl_V = symbolic_curl(V, g, [r, theta, phi])
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

@@ -3,6 +3,12 @@ from django.urls import path
 from calculator.views import calculate_view, health_check
 from calculator.numerical_views import numerical_calculate_view
 from calculator.symbolic_views import symbolic_calculation_view
+# Import the new views (uncomment when implemented)
+# from calculator.differential_operators_views import (
+#     symbolic_differential_view,
+#     numerical_differential_view, 
+#     coordinate_transform_view
+# )
 
 # Define all URL patterns for the tensor calculator API
 # Note: We maintain both 'numerical' and 'numeric' endpoints for backward compatibility
@@ -18,4 +24,9 @@ urlpatterns = [
     path('api/tensors/symbolic/', symbolic_calculation_view, name='symbolic_calculation'),
     path('api/tensors/symbolic', symbolic_calculation_view, name='symbolic_calculation_no_slash'),
     path('api/health/', health_check, name='health_check'),
+    
+    # New differential operators endpoints (uncomment when implemented)
+    # path('api/differential/symbolic/', symbolic_differential_view, name='symbolic_differential'),
+    # path('api/differential/numerical/', numerical_differential_view, name='numerical_differential'),
+    # path('api/coordinate/transform/', coordinate_transform_view, name='coordinate_transform'),
 ]
