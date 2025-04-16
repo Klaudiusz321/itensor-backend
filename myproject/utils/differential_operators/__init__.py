@@ -46,6 +46,18 @@ from .transforms import (
     transform_tensor_field
 )
 
+from .consistency_checks import (
+    check_christoffel_symmetry,
+    check_metric_compatibility,
+    check_flat_metric_operators,
+    check_diagonal_metric_consistency,
+    convert_to_orthonormal_basis,
+    check_transformation_consistency,
+    run_all_consistency_checks,
+    check_christoffel_symmetry_numeric,
+    convert_to_orthonormal_basis_numeric
+)
+
 __all__ = [
     # Symbolic differential operators
     'compute_christoffel',
@@ -82,7 +94,18 @@ __all__ = [
     'cylindrical_coordinates',
     'transform_scalar_field',
     'transform_vector_field',
-    'transform_tensor_field'
+    'transform_tensor_field',
+    
+    # Consistency checks
+    'check_christoffel_symmetry',
+    'check_metric_compatibility',
+    'check_flat_metric_operators',
+    'check_diagonal_metric_consistency',
+    'convert_to_orthonormal_basis',
+    'check_transformation_consistency',
+    'run_all_consistency_checks',
+    'check_christoffel_symmetry_numeric',
+    'convert_to_orthonormal_basis_numeric'
 ]
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ from myproject.utils.differential_operators import (
     # Symbolic operators
     gradient, divergence, laplacian, compute_christoffel, metric_from_transformation,
     # Numeric operators
-    evaluate_gradient, evaluate_divergence, evaluate_laplacian
+    evaluate_gradient, evaluate_divergence, evaluate_laplacian, create_grid
 )
 
 def symbolic_demo():
@@ -87,29 +87,32 @@ def numeric_demo():
     """Run a demonstration of numeric differential operators."""
     print("\n=== NUMERICAL CALCULATIONS WITH NUMPY ===")
     
-    # Create a grid in spherical coordinates
-    r_vals = np.linspace(0.1, 2.0, 20)
-    theta_vals = np.linspace(0.1, np.pi-0.1, 20)
-    phi_vals = np.linspace(0, 2*np.pi, 20)
+    # Create a grid in spherical coordinates using the improved create_grid function
+    coords_ranges = {
+        'r': {'min': 0.1, 'max': 2.0},
+        'theta': {'min': 0.1, 'max': np.pi-0.1},
+        'phi': {'min': 0, 'max': 2*np.pi}
+    }
+    dimensions = [20, 20, 20]  # 20 points in each dimension
     
-    # Create meshgrid with correct indexing
+    grid, spacing = create_grid(coords_ranges, dimensions)
+    r_vals, theta_vals, phi_vals = grid
+    
+    print(f"Grid created with dimensions: {[len(g) for g in grid]}")
+    print(f"Spacing: {spacing}")
+    
+    # Create meshgrid for visualization and field evaluation
     r_grid, theta_grid, phi_grid = np.meshgrid(r_vals, theta_vals, phi_vals, indexing='ij')
-    grid = [r_vals, theta_vals, phi_vals]  # Use 1D arrays for the grid
-    
-    print(f"Grid dimensions: {r_grid.shape}")
     
     # Define a scalar field: f(r, theta, phi) = r^2 * sin(theta)^2 * cos(phi)
     scalar_field = r_grid**2 * np.sin(theta_grid)**2 * np.cos(phi_grid)
+    print(f"\nScalar field shape: {scalar_field.shape}")
     
-    # Create a constant diagonal metric tensor for spherical coordinates
-    metric = np.zeros((3, 3))
-    metric_inverse = np.zeros((3, 3))
-    
-    # Method 1: Position-dependent metric (full tensor)
+    # Method 1: Position-dependent metric (full tensor shape: N_r, N_theta, N_phi, 3, 3)
     print("\nUsing position-dependent metric...")
     
-    # Initialize position-dependent metric tensor
-    metric_full = np.zeros((3, 3) + r_grid.shape)
+    # Initialize metric tensor with proper shape for our grid
+    metric_full = np.zeros(scalar_field.shape + (3, 3))
     metric_inverse_full = np.zeros_like(metric_full)
     
     # Fill the metric tensor values
@@ -124,10 +127,11 @@ def numeric_demo():
                 g_point[1, 1] = r_val**2  # g_θθ = r²
                 g_point[2, 2] = r_val**2 * np.sin(theta_val)**2  # g_φφ = r²sin²θ
                 
-                metric_full[:, :, i, j, k] = g_point
-                metric_inverse_full[:, :, i, j, k] = np.linalg.inv(g_point)
+                metric_full[i, j, k] = g_point
+                metric_inverse_full[i, j, k] = np.linalg.inv(g_point)
     
     # Compute the gradient with position-dependent metric
+    print("Computing gradient...")
     gradient_field = evaluate_gradient(scalar_field, metric_inverse_full, grid)
     print(f"Gradient computed. Shape of each component: {gradient_field[0].shape}")
     
@@ -139,38 +143,36 @@ def numeric_demo():
     ]
     
     # Compute the divergence
+    print("Computing divergence...")
     divergence_field = evaluate_divergence(vector_field, metric_full, grid)
     print(f"Divergence computed. Shape: {divergence_field.shape}")
     
     # Compute the Laplacian
+    print("Computing Laplacian...")
     laplacian_field = evaluate_laplacian(scalar_field, metric_full, metric_inverse_full, grid)
     print(f"Laplacian computed. Shape: {laplacian_field.shape}")
     
-    # Method 2: Using metric functions (alternative approach)
-    print("\nUsing metric functions (alternative approach)...")
+    # Method 2: Constant metric approach for comparison
+    print("\nUsing constant metric at a reference point for comparison...")
     
-    # Define metric functions
-    def g_rr(point):
-        return 1.0
-        
-    def g_theta_theta(point):
-        r = point[0]
-        return r**2
-        
-    def g_phi_phi(point):
-        r, theta = point[0], point[1]
-        return r**2 * np.sin(theta)**2
+    # Create a reference metric at r=1, theta=pi/2
+    r_ref = 1.0
+    theta_ref = np.pi/2
     
-    # Create a list of metric functions
-    metric_funcs = [[g_rr, 0, 0], 
-                    [0, g_theta_theta, 0], 
-                    [0, 0, g_phi_phi]]
+    metric_const = np.zeros((3, 3))
+    metric_const[0, 0] = 1.0  # g_rr = 1
+    metric_const[1, 1] = r_ref**2  # g_θθ = r²
+    metric_const[2, 2] = r_ref**2 * np.sin(theta_ref)**2  # g_φφ = r²sin²θ
     
-    # Fill in zero functions
-    for i in range(3):
-        for j in range(3):
-            if metric_funcs[i][j] == 0:
-                metric_funcs[i][j] = lambda point: 0.0
+    metric_inverse_const = np.linalg.inv(metric_const)
+    
+    # Compute gradient with constant metric (less accurate but faster)
+    print("Computing gradient with constant metric...")
+    gradient_field_const = evaluate_gradient(scalar_field, metric_inverse_const, grid)
+    
+    print("Comparing first few values of gradient[0] component:")
+    print(f"Position-dependent: {gradient_field[0][0,0,0]:.6f}")
+    print(f"Constant metric: {gradient_field_const[0][0,0,0]:.6f}")
     
     # Visualize a 2D slice of the scalar field and its Laplacian
     visualize_fields(r_grid, theta_grid, scalar_field, laplacian_field)
