@@ -65,12 +65,8 @@ def oblicz_tensory(wspolrzedne, metryka):
             Ricci[mu, nu] = custom_simplify(sum(Riemann[rho][mu][rho][nu] for rho in range(n)))
             Ricci[mu, nu] = custom_simplify(Ricci[mu, nu])
 
-    # Obliczanie skalarnej krzywizny
-    Scalar_Curvature = 0
-    for mu in range(n):
-        for nu in range(n):
-            Scalar_Curvature += g_inv[mu, nu] * Ricci[mu, nu]
-    Scalar_Curvature = custom_simplify(Scalar_Curvature)
+    # Obliczanie skalarnej krzywizny używając sumowania po obu indeksach
+    Scalar_Curvature = custom_simplify(sum(g_inv[mu, nu] * Ricci[mu, nu] for mu in range(n) for nu in range(n)))
 
     return g, Gamma, R_abcd, Ricci, Scalar_Curvature
 
@@ -107,14 +103,13 @@ def compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n):
         for nu in range(n):
             G_lower[mu, nu] = custom_simplify(Ricci[mu, nu] - sp.Rational(1, 2) * g[mu, nu] * Scalar_Curvature)
 
-    # Podniesienie indeksów G^{μν} = g^{μα} * g^{νβ} * G_{αβ}
+    # Podniesienie indeksów G^{μν} = g^{μα} * G_{αν}
     for mu in range(n):
         for nu in range(n):
-            G_upper[mu, nu] = 0
+            sum_term = 0
             for alpha in range(n):
-                for beta in range(n):
-                    G_upper[mu, nu] += g_inv[mu, alpha] * g_inv[nu, beta] * G_lower[alpha, beta]
-            G_upper[mu, nu] = custom_simplify(G_upper[mu, nu])
+                sum_term += g_inv[mu, alpha] * G_lower[alpha, nu]
+            G_upper[mu, nu] = custom_simplify(sum_term)
 
     return G_upper, G_lower
 

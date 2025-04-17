@@ -12,137 +12,323 @@ All calculations are performed symbolically using SymPy.
 import sympy as sp
 import numpy as np
 from typing import Dict, List, Tuple, Union, Callable, Optional, Any
+from sympy import symbols, diff, simplify, Matrix, sqrt
 
-def compute_christoffel(metric: sp.Matrix, coords: List[sp.Symbol]) -> List[List[List[sp.Expr]]]:
-    """
-    Compute Christoffel symbols of the second kind from a metric tensor.
+def calculate_christoffel_symbols(coordinates, metric):
+    """Calculate Christoffel symbols from metric tensor.
+    This is a fallback if pre-calculated symbols aren't provided."""
+    dimension = len(coordinates)
+    coord_symbols = symbols(coordinates)
     
-    Args:
-        metric: Metric tensor as a SymPy matrix
-        coords: List of coordinate symbols
-        
-    Returns:
-        3D array of Christoffel symbols Γ^k_ij indexed as Gamma[k][i][j]
-    """
-    n = len(coords)
-    g = metric
-    g_inv = metric.inv()
-    
-    # Initialize Christoffel symbols array with zeros
-    Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    
-    # Compute Christoffel symbols using the formula:
-    # Γ^σ_μν = (1/2) g^σλ (∂_μ g_νλ + ∂_ν g_μλ - ∂_λ g_μν)
-    for sigma in range(n):
-        for mu in range(n):
-            for nu in range(n):
-                Gamma_sum = 0
-                for lam in range(n):
-                    partial_mu  = sp.diff(g[nu, lam], coords[mu])
-                    partial_nu  = sp.diff(g[mu, lam], coords[nu])
-                    partial_lam = sp.diff(g[mu, nu], coords[lam])
-                    Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
-                Gamma[sigma][mu][nu] = sp.simplify(sp.Rational(1, 2) * Gamma_sum)
-    
-    return Gamma
-
-def covariant_derivative(
-    tensor: Union[sp.Expr, List[sp.Expr], List[List[sp.Expr]]], 
-    metric: sp.Matrix, 
-    coords: List[sp.Symbol], 
-    index_positions: Optional[List[bool]] = None,
-    christoffel: Optional[List[List[List[sp.Expr]]]] = None,
-    wrt_index: int = 0
-) -> Union[List[sp.Expr], List[List[sp.Expr]], List[List[List[sp.Expr]]]]:
-    """
-    Compute the covariant derivative of a tensor field.
-    
-    Args:
-        tensor: Tensor components (scalar, vector, or rank-2 tensor)
-        metric: Metric tensor as a SymPy matrix
-        coords: List of coordinate symbols
-        index_positions: List of booleans indicating if each index is contravariant (True) or covariant (False)
-                        If None, tensor is assumed to be fully contravariant
-        christoffel: Pre-computed Christoffel symbols (if None, they will be computed)
-        wrt_index: Index to differentiate with respect to (default: 0)
-        
-    Returns:
-        Covariant derivative of the tensor as a tensor with one more index
-    """
-    n = len(coords)
-    
-    # Compute Christoffel symbols if not provided
-    if christoffel is None:
-        christoffel = compute_christoffel(metric, coords)
-    
-    # Handle scalar field (no indices)
-    if isinstance(tensor, sp.Expr):
-        # For a scalar, covariant derivative is just the partial derivative
-        result = [sp.diff(tensor, coords[i]) for i in range(n)]
-        return result
-    
-    # Handle vector field
-    elif isinstance(tensor, list) and all(isinstance(t, sp.Expr) for t in tensor):
-        # Default: assume contravariant vector if index_positions not specified
-        if index_positions is None:
-            index_positions = [True]
-        
-        result = [[sp.S.Zero for _ in range(n)] for _ in range(n)]
-        
-        for i in range(n):
-            for j in range(n):
-                # Start with partial derivative term
-                result[i][j] = sp.diff(tensor[i], coords[j])
-                
-                # Add Christoffel correction terms
-                if index_positions[0]:  # Contravariant index
-                    for k in range(n):
-                        result[i][j] += christoffel[i][j][k] * tensor[k]
-                else:  # Covariant index
-                    for k in range(n):
-                        result[i][j] -= christoffel[k][j][i] * tensor[k]
-                        
-                # Simplify the final expression
-                result[i][j] = sp.simplify(result[i][j])
-                
-        return result
-    
-    # Handle rank-2 tensor
-    elif isinstance(tensor, list) and all(isinstance(t, list) for t in tensor):
-        # Default: assume contravariant tensor if index_positions not specified
-        if index_positions is None:
-            index_positions = [True, True]
-            
-        result = [[[sp.S.Zero for _ in range(n)] for _ in range(n)] for _ in range(n)]
-        
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    # Start with partial derivative term
-                    result[i][j][k] = sp.diff(tensor[i][j], coords[k])
-                    
-                    # Add Christoffel correction terms for each index
-                    if index_positions[0]:  # First index contravariant
-                        for l in range(n):
-                            result[i][j][k] += christoffel[i][k][l] * tensor[l][j]
-                    else:  # First index covariant
-                        for l in range(n):
-                            result[i][j][k] -= christoffel[l][k][i] * tensor[l][j]
-                            
-                    if index_positions[1]:  # Second index contravariant
-                        for l in range(n):
-                            result[i][j][k] += christoffel[j][k][l] * tensor[i][l]
-                    else:  # Second index covariant
-                        for l in range(n):
-                            result[i][j][k] -= christoffel[l][k][j] * tensor[i][l]
-                    
-                    # Simplify the final expression
-                    result[i][j][k] = sp.simplify(result[i][j][k])
-                    
-        return result
-    
+    # Convert metric to Matrix if it's a list
+    if isinstance(metric, list):
+        g = Matrix(metric)
     else:
-        raise ValueError("Unsupported tensor type or rank")
+        g = metric
+        
+    # Calculate inverse metric
+    g_inv = g.inv()
+    
+    # Initialize Christoffel symbols
+    christoffel = [[[0 for _ in range(dimension)] for _ in range(dimension)] for _ in range(dimension)]
+    
+    # Calculate Christoffel symbols
+    for k in range(dimension):
+        for i in range(dimension):
+            for j in range(dimension):
+                # Calculate Γᵏᵢⱼ
+                sum_term = 0
+                for l in range(dimension):
+                    # ∂gᵢₗ/∂xʲ + ∂gⱼₗ/∂xⁱ - ∂gᵢⱼ/∂xˡ
+                    term1 = diff(g[i, l], coord_symbols[j])
+                    term2 = diff(g[j, l], coord_symbols[i])
+                    term3 = diff(g[i, j], coord_symbols[l])
+                    sum_term += g_inv[k, l] * (term1 + term2 - term3)
+                
+                christoffel[k][i][j] = simplify(sum_term / 2)
+    
+    return christoffel
+
+def covariant_derivative(tensor_field, coordinates, metric, christoffel_symbols=None, index=None):
+    """
+    Calculate the covariant derivative of a tensor field.
+    
+    Args:
+        tensor_field: The tensor field components (scalar, vector, or higher rank)
+        coordinates (list): The coordinate variables as strings
+        metric (list or Matrix): The metric tensor
+        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
+        index (int, optional): The index along which to take the derivative
+        
+    Returns:
+        Covariant derivative of the tensor field
+    """
+    # Implementation will depend on tensor rank
+    # For now, just implement vector covariant derivative
+    
+    # If tensor is a scalar (rank 0), just return gradient
+    if not isinstance(tensor_field, list):
+        return gradient(tensor_field, coordinates, metric, christoffel_symbols)
+    
+    # For vectors, implement full covariant derivative
+    dimension = len(coordinates)
+    coord_symbols = symbols(coordinates)
+    
+    # Convert vector field components to sympy expressions if they're strings
+    vector = []
+    for component in tensor_field:
+        if isinstance(component, str):
+            vector.append(sp.sympify(component))
+        else:
+            vector.append(component)
+    
+    # If not provided, calculate Christoffel symbols
+    if christoffel_symbols is None:
+        christoffel_symbols = calculate_christoffel_symbols(coordinates, metric)
+    
+    # Calculate covariant derivative of vector field
+    # ∇ᵢvⱼ = ∂vⱼ/∂xⁱ - Γᵏᵢⱼvₖ
+    
+    covariant_derivative = [[0 for _ in range(dimension)] for _ in range(dimension)]
+    
+    for i in range(dimension):
+        for j in range(dimension):
+            # Start with partial derivative
+            result = diff(vector[j], coord_symbols[i])
+            
+            # Subtract Christoffel symbol terms
+            for k in range(dimension):
+                result -= christoffel_symbols[k][i][j] * vector[k]
+            
+            covariant_derivative[i][j] = simplify(result)
+    
+    return covariant_derivative
+
+def gradient(scalar_field, coordinates, metric, christoffel_symbols=None):
+    """
+    Calculate the gradient of a scalar field in curvilinear coordinates.
+    
+    Args:
+        scalar_field (str or sympy expression): The scalar field function
+        coordinates (list): The coordinate variables as strings
+        metric (list or Matrix): The metric tensor
+        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
+        
+    Returns:
+        List of gradient components in the given coordinates
+    """
+    dimension = len(coordinates)
+    coord_symbols = symbols(coordinates)
+    
+    # Parse scalar field if it's a string
+    if isinstance(scalar_field, str):
+        f = sp.sympify(scalar_field)
+    else:
+        f = scalar_field
+    
+    # Convert metric to Matrix if it's a list
+    if isinstance(metric, list):
+        g = Matrix(metric)
+    else:
+        g = metric
+    
+    # Calculate inverse metric
+    g_inv = g.inv()
+    
+    # Calculate gradient components (contravariant)
+    gradient_contravariant = []
+    for i in range(dimension):
+        # ∇ⁱf = gⁱʲ ∂f/∂xʲ
+        component = 0
+        for j in range(dimension):
+            component += g_inv[i, j] * diff(f, coord_symbols[j])
+        gradient_contravariant.append(simplify(component))
+    
+    # Convert to covariant components for output
+    gradient = []
+    for i in range(dimension):
+        component = 0
+        for j in range(dimension):
+            component += g[i, j] * gradient_contravariant[j]
+        gradient.append(simplify(component))
+    
+    return gradient
+
+def divergence(vector_field, coordinates, metric, christoffel_symbols=None):
+    """
+    Calculate the divergence of a vector field in curvilinear coordinates.
+    
+    Args:
+        vector_field (list): The contravariant components of the vector field
+        coordinates (list): The coordinate variables as strings
+        metric (list or Matrix): The metric tensor
+        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
+        
+    Returns:
+        Divergence as a sympy expression
+    """
+    dimension = len(coordinates)
+    coord_symbols = symbols(coordinates)
+    
+    # Convert vector field components to sympy expressions if they're strings
+    vector = []
+    for component in vector_field:
+        if isinstance(component, str):
+            vector.append(sp.sympify(component))
+        else:
+            vector.append(component)
+    
+    # Convert metric to Matrix if it's a list
+    if isinstance(metric, list):
+        g = Matrix(metric)
+    else:
+        g = metric
+    
+    # Get determinant of metric
+    g_det = g.det()
+    
+    # If not provided, calculate Christoffel symbols
+    if christoffel_symbols is None:
+        christoffel_symbols = calculate_christoffel_symbols(coordinates, metric)
+    
+    # Calculate divergence using formula:
+    # ∇·v = 1/√|g| ∂/∂xⁱ(√|g| vⁱ)
+    div = 0
+    g_det_sqrt = sqrt(abs(g_det))
+    
+    for i in range(dimension):
+        term = diff(g_det_sqrt * vector[i], coord_symbols[i])
+        div += term
+    
+    div = div / g_det_sqrt
+    
+    return simplify(div)
+
+def curl(vector_field, coordinates, metric, christoffel_symbols=None):
+    """
+    Calculate the curl of a vector field in 3D curvilinear coordinates.
+    
+    Args:
+        vector_field (list): The contravariant components of the vector field
+        coordinates (list): The coordinate variables as strings
+        metric (list or Matrix): The metric tensor
+        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
+        
+    Returns:
+        List of curl components in the given coordinates
+    """
+    if len(coordinates) != 3:
+        raise ValueError("Curl operation requires exactly 3 dimensions")
+    
+    dimension = 3
+    coord_symbols = symbols(coordinates)
+    
+    # Convert vector field components to sympy expressions if they're strings
+    vector = []
+    for component in vector_field:
+        if isinstance(component, str):
+            vector.append(sp.sympify(component))
+        else:
+            vector.append(component)
+    
+    # Convert metric to Matrix if it's a list
+    if isinstance(metric, list):
+        g = Matrix(metric)
+    else:
+        g = metric
+    
+    # Get determinant of metric
+    g_det = g.det()
+    g_det_sqrt = sqrt(abs(g_det))
+    
+    # If not provided, calculate Christoffel symbols
+    if christoffel_symbols is None:
+        christoffel_symbols = calculate_christoffel_symbols(coordinates, metric)
+    
+    # Calculate curl using Levi-Civita symbol and metric
+    curl_components = []
+    
+    # For each component (i)
+    for i in range(3):
+        j = (i + 1) % 3
+        k = (i + 2) % 3
+        
+        # Calculate ∇ × v component: (∂vₖ/∂xʲ - ∂vⱼ/∂xᵏ)
+        component = diff(vector[k], coord_symbols[j]) - diff(vector[j], coord_symbols[k])
+        
+        # Add Christoffel symbol terms for covariant derivatives
+        for l in range(3):
+            component += (christoffel_symbols[k][j][l] * vector[l] - 
+                        christoffel_symbols[j][k][l] * vector[l])
+        
+        # Multiply by √|g| for proper curl operation in curvilinear coordinates
+        component = component / g_det_sqrt
+        
+        curl_components.append(simplify(component))
+    
+    return curl_components
+
+def laplacian(scalar_field, coordinates, metric, christoffel_symbols=None):
+    """
+    Calculate the Laplacian of a scalar field in curvilinear coordinates.
+    
+    Args:
+        scalar_field (str or sympy expression): The scalar field function
+        coordinates (list): The coordinate variables as strings
+        metric (list or Matrix): The metric tensor
+        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
+        
+    Returns:
+        Laplacian as a sympy expression
+    """
+    dimension = len(coordinates)
+    coord_symbols = symbols(coordinates)
+    
+    # Parse scalar field if it's a string
+    if isinstance(scalar_field, str):
+        f = sp.sympify(scalar_field)
+    else:
+        f = scalar_field
+    
+    # Convert metric to Matrix if it's a list
+    if isinstance(metric, list):
+        g = Matrix(metric)
+    else:
+        g = metric
+    
+    # Calculate inverse metric
+    g_inv = g.inv()
+    
+    # Get determinant of metric
+    g_det = g.det()
+    g_det_sqrt = sqrt(abs(g_det))
+    
+    # If not provided, calculate Christoffel symbols
+    if christoffel_symbols is None:
+        christoffel_symbols = calculate_christoffel_symbols(coordinates, metric)
+    
+    # Calculate Laplacian using the formula:
+    # ∇²f = 1/√|g| ∂/∂xⁱ(√|g| gⁱʲ ∂f/∂xʲ)
+    
+    laplacian = 0
+    
+    for i in range(dimension):
+        for j in range(dimension):
+            # Calculate gⁱʲ ∂f/∂xʲ
+            term = g_inv[i, j] * diff(f, coord_symbols[j])
+            
+            # Multiply by √|g|
+            term = g_det_sqrt * term
+            
+            # Take derivative ∂/∂xⁱ of the whole term
+            term = diff(term, coord_symbols[i])
+            
+            # Divide by √|g|
+            term = term / g_det_sqrt
+            
+            laplacian += term
+    
+    return simplify(laplacian)
 
 def levi_civita_tensor(metric: sp.Matrix, dimension: int) -> List:
     """
@@ -309,173 +495,6 @@ def lower_index(tensor: List, metric: sp.Matrix, index_pos: int = 0) -> List:
     else:
         raise ValueError(f"Unsupported tensor type or rank: {type(tensor)}, elements: {[type(t) for t in tensor]}")
 
-def gradient(scalar_field: sp.Expr, metric: sp.Matrix, coords: List[sp.Symbol], 
-             contravariant: bool = True) -> List[sp.Expr]:
-    """
-    Compute the gradient of a scalar field.
-    
-    Args:
-        scalar_field: Scalar field as a SymPy expression
-        metric: Metric tensor as a SymPy matrix
-        coords: List of coordinate symbols
-        contravariant: If True, return contravariant components (with upper indices)
-                      If False, return covariant components (with lower indices)
-        
-    Returns:
-        Gradient of the scalar field as a vector
-    """
-    n = len(coords)
-    
-    # Compute partial derivatives (covariant components of gradient)
-    grad_covariant = [sp.diff(scalar_field, coords[i]) for i in range(n)]
-    
-    # If contravariant components requested, convert using inverse metric
-    if contravariant:
-        g_inv = metric.inv()
-        grad_contravariant = [sp.S.Zero for _ in range(n)]
-        
-        for i in range(n):
-            for j in range(n):
-                grad_contravariant[i] += g_inv[i, j] * grad_covariant[j]
-            grad_contravariant[i] = sp.simplify(grad_contravariant[i])
-        
-        return grad_contravariant
-    
-    # Otherwise return covariant components
-    return grad_covariant
-
-def divergence(vector_field: List[sp.Expr], metric: sp.Matrix, coords: List[sp.Symbol], 
-               is_contravariant: bool = True) -> sp.Expr:
-    """
-    Compute the divergence of a vector field.
-    
-    Args:
-        vector_field: Vector field components
-        metric: Metric tensor as a SymPy matrix
-        coords: List of coordinate symbols
-        is_contravariant: Whether the vector field has contravariant components
-        
-    Returns:
-        Divergence of the vector field (scalar)
-    """
-    n = len(coords)
-    
-    # If vector is not contravariant, raise the index
-    if not is_contravariant:
-        g_inv = metric.inv()
-        vector_contravariant = raise_index(vector_field, g_inv)
-    else:
-        vector_contravariant = vector_field
-    
-    # Compute metric determinant
-    g_det = metric.det()
-    g_det_sqrt = sp.sqrt(sp.Abs(g_det))
-    
-    # Compute divergence using the formula:
-    # div V = (1/√|g|) ∂_i(√|g| V^i)
-    div = sp.S.Zero
-    
-    for i in range(n):
-        div += sp.diff(g_det_sqrt * vector_contravariant[i], coords[i])
-    
-    div = div / g_det_sqrt
-    
-    return sp.simplify(div)
-
-def curl(vector_field: List[sp.Expr], metric: sp.Matrix, coords: List[sp.Symbol], 
-         is_contravariant: bool = True) -> List[sp.Expr]:
-    """
-    Compute the curl of a vector field (only valid in 3D).
-    
-    Args:
-        vector_field: Vector field components
-        metric: Metric tensor as a SymPy matrix
-        coords: List of coordinate symbols
-        is_contravariant: Whether the vector field has contravariant components
-        
-    Returns:
-        Curl of the vector field as a contravariant vector
-    """
-    n = len(coords)
-    
-    if n != 3:
-        raise ValueError("Curl operator is only defined in 3D space")
-    
-    # Ensure vector_field elements are sympy expressions
-    vector_field = [sp.sympify(v) if not isinstance(v, sp.Expr) else v for v in vector_field]
-    
-    # Convert to covariant components if needed
-    if is_contravariant:
-        try:
-            vector_covariant = lower_index(vector_field, metric)
-        except Exception as e:
-            print(f"Error lowering index: {e}")
-            print(f"Vector field: {vector_field}")
-            print(f"Types: {[type(v) for v in vector_field]}")
-            raise
-    else:
-        vector_covariant = vector_field
-    
-    # Compute covariant derivative of the vector field
-    christoffel = compute_christoffel(metric, coords)
-    nabla_v = covariant_derivative(vector_covariant, metric, coords, 
-                                  index_positions=[False], 
-                                  christoffel=christoffel)
-    
-    # Compute Levi-Civita tensor (contravariant)
-    epsilon = levi_civita_tensor(metric, 3)
-    
-    # Compute curl using the formula:
-    # (∇×V)^i = ε^{ijk} ∇_j V_k
-    curl_vector = [sp.S.Zero for _ in range(3)]
-    
-    for i in range(3):
-        for j in range(3):
-            for k in range(3):
-                curl_vector[i] += epsilon[i][j][k] * nabla_v[k][j]
-        curl_vector[i] = sp.simplify(curl_vector[i])
-    
-    return curl_vector
-
-def laplacian(scalar_field: sp.Expr, metric: sp.Matrix, coords: List[sp.Symbol]) -> sp.Expr:
-    """
-    Compute the Laplacian of a scalar field.
-    
-    Args:
-        scalar_field: Scalar field as a SymPy expression
-        metric: Metric tensor as a SymPy matrix
-        coords: List of coordinate symbols
-        
-    Returns:
-        Laplacian of the scalar field (scalar)
-    """
-    n = len(coords)
-    
-    # Compute metric determinant
-    g_det = metric.det()
-    g_det_sqrt = sp.sqrt(sp.Abs(g_det))
-    
-    # Compute inverse metric
-    g_inv = metric.inv()
-    
-    # Compute Laplacian using the formula:
-    # ∇²f = (1/√|g|) ∂_i(√|g| g^{ij} ∂_j f)
-    laplacian_value = sp.S.Zero
-    
-    for i in range(n):
-        # Compute g^{ij} ∂_j f for this i
-        term = sp.S.Zero
-        for j in range(n):
-            term += g_inv[i, j] * sp.diff(scalar_field, coords[j])
-        
-        # Multiply by √|g| and take derivative
-        laplacian_value += sp.diff(g_det_sqrt * term, coords[i])
-    
-    # Divide by √|g|
-    laplacian_value = laplacian_value / g_det_sqrt
-    
-    return sp.simplify(laplacian_value)
-
 def dalembert(scalar_field: sp.Expr, metric: sp.Matrix, coords: List[sp.Symbol]) -> sp.Expr:
     """
     Compute the d'Alembertian (wave operator) of a scalar field.
@@ -570,8 +589,8 @@ if __name__ == "__main__":
     print(f"Scalar field: f(r, theta, phi) = {scalar_field}")
     
     # Compute the gradient (contravariant and covariant)
-    grad_contravariant = gradient(scalar_field, spherical_metric, coords, contravariant=True)
-    grad_covariant = gradient(scalar_field, spherical_metric, coords, contravariant=False)
+    grad_contravariant = gradient(scalar_field, coords, spherical_metric, christoffel_symbols=None)
+    grad_covariant = gradient(scalar_field, coords, spherical_metric, christoffel_symbols=None)
     
     print("Contravariant gradient (with upper indices):")
     for i in range(3):
@@ -591,7 +610,7 @@ if __name__ == "__main__":
         print(f"V^{i} = {vector_field[i]}")
     
     # Compute the divergence
-    div = divergence(vector_field, spherical_metric, coords)
+    div = divergence(vector_field, coords, spherical_metric, christoffel_symbols=None)
     
     print(f"Divergence of vector field: ∇·V = {div}")
     div_simplified = sp.simplify(div)
@@ -604,7 +623,7 @@ if __name__ == "__main__":
     scalar_field2 = r**2
     print(f"Scalar field: f(r, theta, phi) = {scalar_field2}")
     
-    lap = laplacian(scalar_field2, spherical_metric, coords)
+    lap = laplacian(scalar_field2, coords, spherical_metric, christoffel_symbols=None)
     
     print(f"Laplacian of scalar field: ∇²f = {lap}")
     lap_simplified = sp.simplify(lap)
@@ -620,7 +639,7 @@ if __name__ == "__main__":
         print(f"V^{i} = {vector_field2[i]}")
     
     # Compute the curl
-    curl_vector = curl(vector_field2, spherical_metric, coords)
+    curl_vector = curl(vector_field2, coords, spherical_metric, christoffel_symbols=None)
     
     print("Curl of vector field (contravariant components):")
     for i in range(3):
@@ -629,7 +648,7 @@ if __name__ == "__main__":
     # Example 7: Compute Christoffel symbols
     print("\n8. Computing Christoffel symbols")
     
-    christoffel = compute_christoffel(spherical_metric, coords)
+    christoffel = calculate_christoffel_symbols(coords, spherical_metric)
     
     print("Non-zero Christoffel symbols:")
     for i in range(3):

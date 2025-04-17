@@ -42,25 +42,12 @@ def lower_indices(tensor, g, n):
     lowered = [[[[0 for _ in range(n)] for _ in range(n)] 
                  for _ in range(n)] for _ in range(n)]
     
-    # Obniżamy indeksy
-    for rho in range(n):
-        for sigma in range(n):
-            for mu in range(n):
-                for nu in range(n):
-                    lowered[rho][sigma][mu][nu] = 0
-                    
-                    # Obniżamy górny indeks 'rho'
-                    for lambda_idx in range(n):
-                        if tensor[lambda_idx][sigma][mu][nu] != 0:  # Optymalizacja dla rzadkich tensorów
-                            lowered[rho][sigma][mu][nu] += g[rho, lambda_idx] * tensor[lambda_idx][sigma][mu][nu]
-    
-    # Upraszczamy komponenty
-    for i in range(n):
-        for j in range(n):
-            for k in range(n):
-                for l in range(n):
-                    if lowered[i][j][k][l] != 0:
-                        lowered[i][j][k][l] = custom_simplify(lowered[i][j][k][l])
+    # Obniżamy indeksy za pomocą sumowania
+    for a in range(n):
+        for b in range(n):
+            for c in range(n):
+                for d in range(n):
+                    lowered[a][b][c][d] = sum(g[a, i] * tensor[i][b][c][d] for i in range(n))
     
     return lowered
 
