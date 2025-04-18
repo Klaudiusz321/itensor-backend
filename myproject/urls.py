@@ -3,7 +3,7 @@ from django.urls import path, include
 from calculator.views import calculate_view, health_check
 from calculator.numerical_views import numerical_calculate_view
 from calculator.symbolic_views import symbolic_calculation_view
-from myproject.api.views import differential_operators
+from myproject.api.views import differential_operators, mhd_simulation, mhd_snapshot
 import logging
 
 # Setup debug logging for URLs
@@ -26,6 +26,10 @@ urlpatterns = [
     
     # Direct URL for differential operators
     path('api/differential-operators/', differential_operators, name='differential_operators'),
+    
+    # MHD API endpoints
+    path('api/mhd/simulation/', mhd_simulation, name='mhd_simulation'),
+    path('api/mhd/snapshot/', mhd_snapshot, name='mhd_snapshot'),
 ]
 
 # Debug print all registered URLs

@@ -14,6 +14,24 @@ from myproject.utils.differential_operators.consistency_checks import (
     check_christoffel_symmetry,
     check_metric_compatibility
 )
+from myproject.utils.mhd import (
+    MHDSystem,
+    orszag_tang_vortex,
+    magnetic_rotor,
+    mhd_blast_wave,
+    mhd_shock_tube,
+    kelvin_helmholtz_mhd,
+    initialize_face_centered_b,
+    compute_emf,
+    update_face_centered_b,
+    face_to_cell_centered_b,
+    check_divergence_free
+)
+import base64
+import io
+from matplotlib import pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use Agg backend to avoid GUI dependency
 
 logger = logging.getLogger(__name__)
 
@@ -257,4 +275,160 @@ def differential_operators(request):
             logger.error(traceback.format_exc())
             return Response({'error': str(e)}, status=400)
     else:
-        return Response({'error': 'Only POST requests are allowed'}, status=405) 
+        return Response({'error': 'Only POST requests are allowed'}, status=405)
+
+# Add MHD API views
+@api_view(['POST'])
+def mhd_simulation(request):
+    """
+    Run MHD simulations based on provided parameters.
+    """
+    logger.info("MHD simulation request received")
+    
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            
+            # Extract parameters
+            simulation_type = data.get('simulation_type', 'orszag_tang')
+            domain_size = data.get('domain_size', [[0, 1], [0, 1]])
+            resolution = data.get('resolution', [128, 128])
+            gamma = data.get('gamma', 5/3)
+            final_time = data.get('final_time', 0.5)
+            frame_count = data.get('frame_count', 10)
+            
+            # Coordinate system information
+            coord_system = data.get('coordinate_system', {
+                'coordinates': ['x', 'y'],
+                'transformation': None  # Default to Cartesian
+            })
+            
+            # Create MHD system based on simulation type
+            if simulation_type == 'orszag_tang':
+                mhd_system = orszag_tang_vortex(domain_size, resolution, gamma)
+            elif simulation_type == 'magnetic_rotor':
+                mhd_system = magnetic_rotor(domain_size, resolution, gamma)
+            elif simulation_type == 'mhd_blast_wave':
+                mhd_system = mhd_blast_wave(domain_size, resolution, gamma)
+            elif simulation_type == 'shock_tube':
+                mhd_system = mhd_shock_tube(domain_size, resolution, gamma)
+            elif simulation_type == 'kelvin_helmholtz':
+                mhd_system = kelvin_helmholtz_mhd(domain_size, resolution, gamma)
+            else:
+                return Response({
+                    'error': f"Unknown simulation type: {simulation_type}"
+                }, status=400)
+            
+            # Store frames for visualization
+            frames = []
+            
+            # Output callback function to store data at regular intervals
+            def save_frame(mhd, time):
+                # Extract the fields to send to frontend
+                frame_data = {
+                    'time': float(time),
+                    'density': mhd.density.tolist(),
+                    'pressure': mhd.pressure.tolist(),
+                    'magnetic_field': [field.tolist() for field in mhd.magnetic_field],
+                    'velocity': [field.tolist() for field in mhd.velocity],
+                    'max_div_b': float(mhd.check_divergence_free())
+                }
+                frames.append(frame_data)
+            
+            # Run the simulation
+            output_interval = final_time / (frame_count - 1) if frame_count > 1 else final_time
+            mhd_system.evolve(final_time, output_callback=save_frame, output_interval=output_interval)
+            
+            # Return the simulation results
+            return Response({
+                'success': True,
+                'frames': frames,
+                'simulation_type': simulation_type,
+                'domain_size': domain_size,
+                'resolution': resolution,
+                'final_time': final_time
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in MHD simulation: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': f"MHD simulation error: {str(e)}"
+            }, status=500)
+
+@api_view(['POST'])
+def mhd_snapshot(request):
+    """
+    Generate a visualization snapshot of the MHD state.
+    """
+    logger.info("MHD snapshot request received")
+    
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            
+            # Extract parameters for visualization
+            field_type = data.get('field_type', 'density')
+            simulation_data = data.get('simulation_data', None)
+            
+            if not simulation_data:
+                return Response({
+                    'error': "No simulation data provided"
+                }, status=400)
+            
+            # Extract field data based on requested type
+            time = simulation_data.get('time', 0.0)
+            
+            plt.figure(figsize=(8, 6))
+            field = None
+            
+            if field_type == 'density':
+                field = np.array(simulation_data.get('density', []))
+                title = f"Density at t = {time:.3f}"
+            elif field_type == 'pressure':
+                field = np.array(simulation_data.get('pressure', []))
+                title = f"Pressure at t = {time:.3f}"
+            elif field_type.startswith('velocity'):
+                component = int(field_type[-1]) if len(field_type) > 8 else 0
+                velocity_components = simulation_data.get('velocity', [])
+                if component < len(velocity_components):
+                    field = np.array(velocity_components[component])
+                    title = f"Velocity {['x', 'y', 'z'][component]} at t = {time:.3f}"
+            elif field_type.startswith('magnetic'):
+                component = int(field_type[-1]) if len(field_type) > 8 else 0
+                magnetic_components = simulation_data.get('magnetic_field', [])
+                if component < len(magnetic_components):
+                    field = np.array(magnetic_components[component])
+                    title = f"Magnetic Field {['x', 'y', 'z'][component]} at t = {time:.3f}"
+            
+            if field is None or field.size == 0:
+                return Response({
+                    'error': f"Invalid field type: {field_type} or empty data"
+                }, status=400)
+            
+            # Generate the visualization
+            plt.imshow(field, cmap='viridis', origin='lower', aspect='auto')
+            plt.colorbar(label=field_type)
+            plt.title(title)
+            
+            # Save the plot to a buffer
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='png')
+            buffer.seek(0)
+            plot_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            plt.close()
+            
+            # Return the base64-encoded image
+            return Response({
+                'success': True,
+                'image_data': plot_data,
+                'field_type': field_type,
+                'time': time
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in MHD snapshot: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': f"MHD snapshot error: {str(e)}"
+            }, status=500) 
