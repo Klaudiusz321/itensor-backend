@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     'calculator',
     'whitenoise.runserver_nostatic',
     'rest_framework',
-    'api',
+    # Remove the problematic app entries
 ]
 
 MIDDLEWARE = [

@@ -1,7 +1,7 @@
 from django.urls import path
-from . import views
+from api.views import differential_operators
 
 urlpatterns = [
     # ... existing URLs ...
-    path('differential-operators/', views.differential_operators, name='differential_operators'),
+    path('differential-operators/', differential_operators, name='differential_operators'),
 ] 

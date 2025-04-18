@@ -3,12 +3,7 @@ from django.urls import path, include
 from calculator.views import calculate_view, health_check
 from calculator.numerical_views import numerical_calculate_view
 from calculator.symbolic_views import symbolic_calculation_view
-# Import the new views (uncomment when implemented)
-# from calculator.differential_operators_views import (
-#     symbolic_differential_view,
-#     numerical_differential_view, 
-#     coordinate_transform_view
-# )
+from myproject.api.views import differential_operators
 import logging
 
 # Setup debug logging for URLs
@@ -29,13 +24,8 @@ urlpatterns = [
     path('api/tensors/symbolic', symbolic_calculation_view, name='symbolic_calculation_no_slash'),
     path('api/health/', health_check, name='health_check'),
     
-    # Include the API app's URLs
-    path('api/', include('api.urls')),
-    
-    # New differential operators endpoints (uncomment when implemented)
-    # path('api/differential/symbolic/', symbolic_differential_view, name='symbolic_differential'),
-    # path('api/differential/numerical/', numerical_differential_view, name='numerical_differential'),
-    # path('api/coordinate/transform/', coordinate_transform_view, name='coordinate_transform'),
+    # Direct URL for differential operators
+    path('api/differential-operators/', differential_operators, name='differential_operators'),
 ]
 
 # Debug print all registered URLs

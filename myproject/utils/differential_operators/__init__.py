@@ -5,34 +5,40 @@ This module implements differential operators (gradient, divergence, curl, Lapla
 in general curvilinear coordinate systems for both symbolic and numerical calculations.
 """
 
+# Differential operators package
+# This package contains modules for calculating differential operators on tensor fields
+
+# Import main functions for convenience
 from .symbolic import (
-    compute_christoffel,
-    covariant_derivative,
+    calculate_christoffel_symbols,
     gradient,
     divergence,
     curl,
     laplacian,
-    dalembert,
-    levi_civita_tensor,
-    raise_index,
-    lower_index,
-    metric_from_transformation
+    covariant_derivative
 )
 
-from .numeric import (
-    create_grid,
-    discretize_field,
-    discretize_vector_field,
-    compute_partial_derivative,
-    compute_christoffel_on_grid,
-    evaluate_gradient,
-    evaluate_divergence,
-    evaluate_curl,
-    evaluate_laplacian,
-    evaluate_dalembert,
-    apply_boundary_condition,
-    interpolate_field
-)
+# Import from numeric module
+try:
+    from .numeric import (
+        evaluate_gradient,
+        evaluate_divergence,
+        evaluate_curl,
+        evaluate_laplacian
+    )
+except ImportError:
+    # Numeric implementation might not be available
+    pass
+
+# Import consistency checks
+try:
+    from .consistency_checks import (
+        check_christoffel_symmetry,
+        check_metric_compatibility
+    )
+except ImportError:
+    # Consistency checks might not be implemented yet
+    pass
 
 from .transforms import (
     cartesian_to_curvilinear,
@@ -47,43 +53,24 @@ from .transforms import (
 )
 
 from .consistency_checks import (
-    check_christoffel_symmetry,
-    check_metric_compatibility,
-    check_flat_metric_operators,
-    check_diagonal_metric_consistency,
-    convert_to_orthonormal_basis,
-    check_transformation_consistency,
-    run_all_consistency_checks,
     check_christoffel_symmetry_numeric,
     convert_to_orthonormal_basis_numeric
 )
 
 __all__ = [
     # Symbolic differential operators
-    'compute_christoffel',
-    'covariant_derivative',
+    'calculate_christoffel_symbols',
     'gradient',
     'divergence',
     'curl',
     'laplacian',
-    'dalembert',
-    'levi_civita_tensor',
-    'raise_index',
-    'lower_index',
+    'covariant_derivative',
     
     # Numerical differential operators
-    'create_grid',
-    'discretize_field',
-    'discretize_vector_field',
-    'compute_partial_derivative',
-    'compute_christoffel_on_grid',
     'evaluate_gradient',
     'evaluate_divergence',
     'evaluate_curl',
     'evaluate_laplacian',
-    'evaluate_dalembert',
-    'apply_boundary_condition',
-    'interpolate_field',
     
     # Coordinate transformations
     'cartesian_to_curvilinear',
@@ -99,11 +86,6 @@ __all__ = [
     # Consistency checks
     'check_christoffel_symmetry',
     'check_metric_compatibility',
-    'check_flat_metric_operators',
-    'check_diagonal_metric_consistency',
-    'convert_to_orthonormal_basis',
-    'check_transformation_consistency',
-    'run_all_consistency_checks',
     'check_christoffel_symmetry_numeric',
     'convert_to_orthonormal_basis_numeric'
 ]
@@ -147,7 +129,7 @@ if __name__ == "__main__":
     
     # Compute Christoffel symbols
     print("\nComputing Christoffel symbols...")
-    christoffel = compute_christoffel(spherical_metric, coords)
+    christoffel = calculate_christoffel_symbols(spherical_metric, coords)
     
     print("Sample of non-zero Christoffel symbols:")
     shown = 0

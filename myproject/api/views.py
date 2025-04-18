@@ -1,3 +1,4 @@
+from django.shortcuts import render
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 import json
@@ -5,6 +6,14 @@ import sympy as sp
 import numpy as np
 import traceback
 import logging
+from myproject.utils.differential_operators.symbolic import (
+    calculate_christoffel_symbols,
+    gradient, divergence, curl, laplacian, covariant_derivative
+)
+from myproject.utils.differential_operators.consistency_checks import (
+    check_christoffel_symmetry,
+    check_metric_compatibility
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +22,8 @@ def differential_operators(request):
     """
     Calculate differential operators using pre-calculated tensors.
     """
+    logger.info("Differential operators request received")
+    
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -38,7 +49,7 @@ def differential_operators(request):
                     divergence, 
                     curl, 
                     laplacian, 
-                    covariant_derivative
+                    covariant_derivative,
                 )
                 from myproject.utils.differential_operators.consistency_checks import (
                     check_christoffel_symmetry,
@@ -67,41 +78,82 @@ def differential_operators(request):
                     
                     # Convert metric to sympy matrix
                     metric_matrix = sp.Matrix(metric)
-                    
+                   # … after metric_matrix = sp.Matrix(metric)
+                    coord_symbols    = sp.symbols(coordinates)
+                    christoffel_calc = calculate_christoffel_symbols(coord_symbols, metric_matrix)
+
                     # Process selected operators
                     if 'gradient' in selected_operators and scalar_expr:
-                        grad_result = gradient(scalar_expr, coordinates, metric_matrix, christoffel_symbols)
-                        result['gradient'] = [str(comp) for comp in grad_result]
-                        
+                        grad_result = gradient(
+                            scalar_expr,
+                            coordinates,
+                            metric_matrix,
+                            christoffel_calc
+                        )
+                        result['gradient'] = [str(c) for c in grad_result]
+
                     if 'divergence' in selected_operators and vector_expr:
-                        div_result = divergence(vector_expr, coordinates, metric_matrix, christoffel_symbols)
+                        div_result = divergence(
+                            vector_expr,
+                            coordinates,
+                            metric_matrix,
+                            christoffel_calc
+                        )
                         result['divergence'] = str(div_result)
-                        
+
                     if 'curl' in selected_operators and vector_expr:
-                        # Curl only makes sense in 3D
                         if len(coordinates) != 3:
                             result['curl_error'] = "Curl operation requires 3D space"
                         else:
-                            curl_result = curl(vector_expr, coordinates, metric_matrix, christoffel_symbols)
-                            result['curl'] = [str(comp) for comp in curl_result]
-                        
+                            curl_result = curl(
+                                vector_expr,
+                                coordinates,
+                                metric_matrix,
+                                christoffel_calc
+                            )
+                            result['curl'] = [str(c) for c in curl_result]
+
                     if 'laplacian' in selected_operators and scalar_expr:
-                        lap_result = laplacian(scalar_expr, coordinates, metric_matrix, christoffel_symbols)
-                        result['laplacian'] = str(lap_result)
-                        
-                    if 'covariant-derivative' in selected_operators and vector_expr:
-                        cov_result = covariant_derivative(vector_expr, coordinates, metric_matrix, christoffel_symbols)
-                        # Convert 2D array of sympy expressions to 2D array of strings
-                        result['covariantDerivative'] = [[str(comp) for comp in row] for row in cov_result]
-                    
-                    # Perform consistency checks if enabled
-                    if enable_consistency_checks:
-                        consistency_checks = {}
-                        consistency_checks['christoffelSymmetry'] = check_christoffel_symmetry(christoffel_symbols)
-                        consistency_checks['metricCompatibility'] = check_metric_compatibility(
-                            metric_matrix, christoffel_symbols, coord_symbols
+                        lap_result = laplacian(
+                            scalar_expr,
+                            coordinates,
+                            metric_matrix,
+                            christoffel_calc
                         )
-                        result['consistencyChecks'] = consistency_checks
+                        result['laplacian'] = str(lap_result)
+
+                    if 'covariant-derivative' in selected_operators and vector_expr:
+                        cov_result = covariant_derivative(
+                            vector_expr,
+                            coordinates,
+                            metric_matrix,
+                            christoffel_calc
+                        )
+                        result['covariantDerivative'] = [
+                            [str(comp) for comp in row]
+                            for row in cov_result
+                        ]
+
+                    # consistency‑checks should line up with the above `if` blocks:
+                    if enable_consistency_checks:
+                        dimension = len(coordinates)
+                        christoffel_dict = {}
+                        for k in range(dimension):
+                            for i in range(dimension):
+                                for j in range(dimension):
+                                    val = christoffel_calc[k][i][j]
+                                    if val != 0:
+                                        christoffel_dict[(k, i, j)] = val
+
+                        result['consistencyChecks'] = {
+                            'christoffelSymmetry': check_christoffel_symmetry(
+                                christoffel_dict, dimension
+                            ),
+                            'metricCompatibility': check_metric_compatibility(
+                                metric_matrix, christoffel_dict, coord_symbols, dimension
+                            )
+                        }
+
                         
                 except Exception as e:
                     logger.error(f"Error in symbolic calculations: {str(e)}")
@@ -114,7 +166,8 @@ def differential_operators(request):
                     evaluate_gradient, 
                     evaluate_divergence, 
                     evaluate_curl, 
-                    evaluate_laplacian
+                    evaluate_laplacian,
+                    
                 )
                 
                 try:
