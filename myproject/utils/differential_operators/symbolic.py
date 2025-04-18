@@ -10,6 +10,7 @@ All calculations are performed symbolically using SymPy.
 """
 
 import sympy as sp
+from sympy import symbols, diff, simplify, Matrix, sqrt, Symbol
 import numpy as np
 from typing import Dict, List, Tuple, Union, Callable, Optional, Any
 from sympy import symbols, diff, simplify, Matrix, sqrt
@@ -17,8 +18,15 @@ from sympy import symbols, diff, simplify, Matrix, sqrt
 def calculate_christoffel_symbols(coordinates, metric):
     """Calculate Christoffel symbols from metric tensor.
     This is a fallback if pre-calculated symbols aren't provided."""
+    
+    if all(isinstance(c,str) for c in coordinates):
+        coordinates = symbols(coordinates)
+    elif all(isinstance(c, sp.Symbol) for c in coordinates):
+        coord_symbols = coordinates
+    else: 
+        coord_symbols = [Symbol(str(c)) for c in coordinates]
     dimension = len(coordinates)
-    coord_symbols = symbols(coordinates)
+    
     
     # Convert metric to Matrix if it's a list
     if isinstance(metric, list):
@@ -107,52 +115,48 @@ def covariant_derivative(tensor_field, coordinates, metric, christoffel_symbols=
 def gradient(scalar_field, coordinates, metric, christoffel_symbols=None):
     """
     Calculate the gradient of a scalar field in curvilinear coordinates.
-    
-    Args:
-        scalar_field (str or sympy expression): The scalar field function
-        coordinates (list): The coordinate variables as strings
-        metric (list or Matrix): The metric tensor
-        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
-        
-    Returns:
-        List of gradient components in the given coordinates
+    …
     """
     dimension = len(coordinates)
-    coord_symbols = symbols(coordinates)
-    
-    # Parse scalar field if it's a string
+
+    # ⬇️ NEW: ensure coord_symbols is always a list of Symbol, not try to
+    #      call symbols() on an already‐constructed Symbol
+    if coordinates and isinstance(coordinates[0], str):
+        # you passed e.g. ['r','theta','phi']
+        coord_symbols = symbols(coordinates)
+    else:
+        # you passed [r, theta, phi] which are already Symbol objects
+        coord_symbols = coordinates  # no symbols() call here
+
+    # parse the scalar field
     if isinstance(scalar_field, str):
         f = sp.sympify(scalar_field)
     else:
         f = scalar_field
-    
-    # Convert metric to Matrix if it's a list
-    if isinstance(metric, list):
-        g = Matrix(metric)
-    else:
-        g = metric
-    
-    # Calculate inverse metric
+
+    # build metric and its inverse
+    g = Matrix(metric) if isinstance(metric, list) else metric
     g_inv = g.inv()
-    
-    # Calculate gradient components (contravariant)
+
+    # compute contravariant gradient ∇^i f = g^ij ∂f/∂x^j
     gradient_contravariant = []
     for i in range(dimension):
-        # ∇ⁱf = gⁱʲ ∂f/∂xʲ
-        component = 0
-        for j in range(dimension):
-            component += g_inv[i, j] * diff(f, coord_symbols[j])
-        gradient_contravariant.append(simplify(component))
-    
-    # Convert to covariant components for output
-    gradient = []
+        comp = sum(
+            g_inv[i, j] * diff(f, coord_symbols[j])
+            for j in range(dimension)
+        )
+        gradient_contravariant.append(simplify(comp))
+
+    # convert to covariant components ∇_i f = g_ij ∇^j f
+    gradient_covariant = []
     for i in range(dimension):
-        component = 0
-        for j in range(dimension):
-            component += g[i, j] * gradient_contravariant[j]
-        gradient.append(simplify(component))
-    
-    return gradient
+        comp = sum(
+            g[i, j] * gradient_contravariant[j]
+            for j in range(dimension)
+        )
+        gradient_covariant.append(simplify(comp))
+
+    return gradient_covariant
 
 def divergence(vector_field, coordinates, metric, christoffel_symbols=None):
     """
@@ -167,8 +171,16 @@ def divergence(vector_field, coordinates, metric, christoffel_symbols=None):
     Returns:
         Divergence as a sympy expression
     """
+    if all(isinstance(c,str) for c in coordinates):
+        coordinates = symbols(coordinates)
+    elif all(isinstance(c, sp.Symbol) for c in coordinates):
+        coord_symbols = coordinates
+    else: 
+        coord_symbols = [Symbol(str(c)) for c in coordinates]
+
+
     dimension = len(coordinates)
-    coord_symbols = symbols(coordinates)
+    
     
     # Convert vector field components to sympy expressions if they're strings
     vector = []
@@ -207,65 +219,54 @@ def divergence(vector_field, coordinates, metric, christoffel_symbols=None):
 def curl(vector_field, coordinates, metric, christoffel_symbols=None):
     """
     Calculate the curl of a vector field in 3D curvilinear coordinates.
-    
-    Args:
-        vector_field (list): The contravariant components of the vector field
-        coordinates (list): The coordinate variables as strings
-        metric (list or Matrix): The metric tensor
-        christoffel_symbols (list, optional): Pre-calculated Christoffel symbols
-        
-    Returns:
-        List of curl components in the given coordinates
     """
-    if len(coordinates) != 3:
+    # 1) Normalize 'coordinates' into a list of Sympy Symbols:
+    if all(isinstance(c, str) for c in coordinates):
+        coord_symbols = list(symbols(coordinates))
+    elif all(isinstance(c, Symbol) for c in coordinates):
+        coord_symbols = list(coordinates)
+    else:
+        coord_symbols = [Symbol(str(c)) for c in coordinates]
+    
+    # Now coord_symbols is a proper list of Symbol objects.
+    # Remove *any* further symbols(coordinates) calls below.
+
+    # 2) Check dimension
+    if len(coord_symbols) != 3:
         raise ValueError("Curl operation requires exactly 3 dimensions")
-    
     dimension = 3
-    coord_symbols = symbols(coordinates)
-    
-    # Convert vector field components to sympy expressions if they're strings
-    vector = []
-    for component in vector_field:
-        if isinstance(component, str):
-            vector.append(sp.sympify(component))
-        else:
-            vector.append(component)
-    
-    # Convert metric to Matrix if it's a list
-    if isinstance(metric, list):
+
+    # 3) Convert vector components to Sympy expressions
+    vector = [
+        sp.sympify(comp) if isinstance(comp, str) else comp
+        for comp in vector_field
+    ]
+
+    # 4) Convert metric to Matrix
+    if not isinstance(metric, Matrix):
         g = Matrix(metric)
     else:
         g = metric
-    
-    # Get determinant of metric
-    g_det = g.det()
-    g_det_sqrt = sqrt(abs(g_det))
-    
-    # If not provided, calculate Christoffel symbols
+
+    # 5) If needed, compute Christoffel symbols
     if christoffel_symbols is None:
-        christoffel_symbols = calculate_christoffel_symbols(coordinates, metric)
-    
-    # Calculate curl using Levi-Civita symbol and metric
+        christoffel_symbols = calculate_christoffel_symbols(coord_symbols, g)
+
+    # 6) Build curl
+    g_det_sqrt = sqrt(abs(g.det()))
     curl_components = []
     
-    # For each component (i)
     for i in range(3):
-        j = (i + 1) % 3
-        k = (i + 2) % 3
-        
-        # Calculate ∇ × v component: (∂vₖ/∂xʲ - ∂vⱼ/∂xᵏ)
-        component = diff(vector[k], coord_symbols[j]) - diff(vector[j], coord_symbols[k])
-        
-        # Add Christoffel symbol terms for covariant derivatives
+        j, k = (i+1) % 3, (i+2) % 3
+        # ordinary curl part
+        term = diff(vector[k], coord_symbols[j]) - diff(vector[j], coord_symbols[k])
+        # plus connection terms
         for l in range(3):
-            component += (christoffel_symbols[k][j][l] * vector[l] - 
-                        christoffel_symbols[j][k][l] * vector[l])
-        
-        # Multiply by √|g| for proper curl operation in curvilinear coordinates
-        component = component / g_det_sqrt
-        
-        curl_components.append(simplify(component))
-    
+            term += christoffel_symbols[k][j][l]*vector[l] \
+                  - christoffel_symbols[j][k][l]*vector[l]
+        # adjust by metric determinant
+        curl_components.append(simplify(term / g_det_sqrt))
+
     return curl_components
 
 def laplacian(scalar_field, coordinates, metric, christoffel_symbols=None):
@@ -281,8 +282,15 @@ def laplacian(scalar_field, coordinates, metric, christoffel_symbols=None):
     Returns:
         Laplacian as a sympy expression
     """
+    if all(isinstance(c,str) for c in coordinates):
+        coordinates = symbols(coordinates)
+    elif all(isinstance(c, sp.Symbol) for c in coordinates):
+        coord_symbols = coordinates
+    else: 
+        coord_symbols = [Symbol(str(c)) for c in coordinates]
+    
     dimension = len(coordinates)
-    coord_symbols = symbols(coordinates)
+    
     
     # Parse scalar field if it's a string
     if isinstance(scalar_field, str):

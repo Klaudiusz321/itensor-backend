@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'calculator',
     'whitenoise.runserver_nostatic',
+    'rest_framework',
+    'api',
 ]
 
 MIDDLEWARE = [
@@ -124,8 +126,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-# Temporarily for development, you can use:
-# CORS_ALLOW_ALL_ORIGINS = True  # Only use during development
+# Temporarily for development, enable all origins
+CORS_ALLOW_ALL_ORIGINS = True  # Only use during development
 
 CORS_ALLOW_CREDENTIALS = True
 
