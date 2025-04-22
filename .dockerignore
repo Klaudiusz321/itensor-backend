@@ -2,6 +2,11 @@
 .git
 .gitignore
 
+# Environment variables
+.env
+.env.*
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
@@ -32,6 +37,7 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 media/
+staticfiles/
 
 # IDE
 .idea/
@@ -41,4 +47,8 @@ media/
 
 # OS specific
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Cache directories
+simulation_cache/
+__pycache__/ 

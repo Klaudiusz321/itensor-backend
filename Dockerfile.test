@@ -3,7 +3,7 @@ FROM python:3.10-slim
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV DJANGO_SETTINGS_MODULE=myproject.settings_prod
+ENV DJANGO_SETTINGS_MODULE=myproject.settings_test
 
 # Set working directory
 WORKDIR /app
@@ -26,7 +26,7 @@ COPY . .
 RUN mkdir -p /app/logs
 
 # Make deployment script executable
-RUN chmod +x deploy.sh
+RUN chmod +x deploy_test.sh
 
 # Create a non-root user to run the application
 RUN adduser --disabled-password --gecos "" appuser
@@ -37,4 +37,4 @@ USER appuser
 EXPOSE 8000
 
 # Run the deployment script
-CMD ["./deploy.sh"] 
+CMD ["./deploy_test.sh"] 
