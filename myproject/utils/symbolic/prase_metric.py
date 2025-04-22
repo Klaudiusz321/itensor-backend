@@ -22,6 +22,14 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         logger.error("Pusty tekst metryki")
         raise ValueError("Pusty tekst metryki")
     
+    # Check if this might be an FLRW-style metric format
+    if len(lines) > 1 and any(";" in line for line in lines[:2]) and any(re.search(r'\bk\b', line) for line in lines[:2]):
+        try:
+            return parse_flrw_metric(metric_text)
+        except Exception as e:
+            logger.warning(f"Failed to parse as FLRW metric, falling back to standard format: {str(e)}")
+            # Continue with standard parsing
+    
     # Wczytaj współrzędne z pierwszej linii
     coords_line = lines[0].strip()
     if ';' in coords_line:
@@ -45,7 +53,7 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         local_dict[coord] = sp.Symbol(coord)
     
     # Dodajmy często używane symbole
-    for sym in ['a', 'b', 'c', 'k', 'r', 'theta', 'phi', 'chi']:
+    for sym in ['b', 'c', 'k', 'r', 'theta', 'phi', 'chi']:
         if sym not in local_dict:
             local_dict[sym] = sp.Symbol(sym)
     
@@ -59,13 +67,23 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         if arg_name not in local_dict:
             local_dict[arg_name] = sp.Symbol(arg_name)
         
-        # Definiuj funkcję symboliczną
-        arg_symbol = local_dict[arg_name]
-        local_dict[func_name] = sp.Function(func_name)(arg_symbol)
+        # Important: Delete any existing symbol with the function name to avoid conflicts
+        if func_name in local_dict:
+            del local_dict[func_name]
         
-        # Dodajemy również klucz dla całego wyrażenia funkcji (np. 'a(t)')
+        # Get the argument symbol
+        arg_symbol = local_dict[arg_name]
+        
+        # Create a SymPy Function
+        func = sp.Function(func_name)
+        local_dict[func_name] = func
+        
+        # Add the function applied to the argument
+        func_expr = func(arg_symbol)
+        
+        # Add a key for the entire function expression (e.g., 'a(t)')
         func_key = f"{func_name}({arg_name})"
-        local_dict[func_key] = local_dict[func_name]
+        local_dict[func_key] = func_expr
     
     # Dodajmy funkcje trygonometryczne
     for func_name in ['sin', 'cos', 'tan', 'cot', 'exp', 'log']:
@@ -157,3 +175,167 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
     logger.info(f"Metryka sparsowana pomyślnie. Wymiar: {n}")
     
     return wspolrzedne, metryka, original_expressions
+
+def parse_flrw_metric(metric_text: str):
+    """
+    Parses FLRW-style metric input format like:
+    
+    t, psi, theta, phi; k
+    0 0 -c**2
+    1 1 a(t)**2 / (1 - k*psi**2)
+    2 2 a(t)**2 * psi**2
+    3 3 a(t)**2 * psi**2 * sin(theta)**2
+    
+    Returns:
+    - list of coordinates
+    - dictionary with metric elements in format (i,j) -> value
+    - dictionary with original expressions
+    """
+    lines = metric_text.strip().split('\n')
+    if not lines:
+        logger.error("Empty metric text")
+        raise ValueError("Empty metric text")
+    
+    # Get coordinates and parameters from the first line
+    coords_line = lines[0].strip()
+    if ';' not in coords_line:
+        raise ValueError("FLRW format requires coordinates and parameters separated by ';' in the first line")
+    
+    coords_text, params_text = coords_line.split(';', 1)
+    coordinates = [x.strip() for x in coords_text.split(',')]
+    parameters = [x.strip() for x in params_text.split(',') if x.strip()]
+    
+    n = len(coordinates)
+    logger.info(f"Detected {n} coordinates: {', '.join(coordinates)} and parameters: {', '.join(parameters)}")
+    
+    # Set up the symbol dictionary
+    local_dict = {}
+    
+    # Define symbols for all coordinates
+    for coord in coordinates:
+        local_dict[coord] = sp.Symbol(coord)
+    
+    # Define symbols for all parameters
+    for param in parameters:
+        local_dict[param] = sp.Symbol(param)
+    
+    # Add commonly used symbols if not already defined
+    common_symbols = ['b', 'c', 'k', 'r', 'theta', 'phi', 'chi']
+    for sym in common_symbols:
+        if sym not in local_dict:
+            local_dict[sym] = sp.Symbol(sym)
+    
+    # Find all expressions like a(t) in the metric text
+    func_pattern = r'([a-zA-Z]+)\(([a-zA-Z]+)\)'
+    func_matches = re.findall(func_pattern, metric_text)
+    
+    # First process all function matches to create proper SymPy Function objects
+    for func_name, arg_name in func_matches:
+        # Ensure the function argument is defined
+        if arg_name not in local_dict:
+            local_dict[arg_name] = sp.Symbol(arg_name)
+        
+        # Important: Remove any existing symbol with this name to avoid conflicts
+        if func_name in local_dict:
+            del local_dict[func_name]
+        
+        # Get the argument symbol
+        arg_symbol = local_dict[arg_name]
+        
+        # Create a SymPy Function
+        func = sp.Function(func_name)
+        local_dict[func_name] = func
+        
+        # The function applied to the argument 
+        func_expr = func(arg_symbol)
+        
+        # Add a key for the entire function expression (e.g., 'a(t)')
+        func_key = f"{func_name}({arg_name})"
+        local_dict[func_key] = func_expr
+        
+        logger.info(f"Defined function {func_name}({arg_name}) = {func_expr}")
+    
+    # Add trigonometric functions
+    for func_name in ['sin', 'cos', 'tan', 'cot', 'exp', 'log']:
+        local_dict[func_name] = getattr(sp, func_name)
+    
+    # Store original text expressions
+    original_expressions = {}
+    
+    # Create the metric dictionary
+    metric = {}
+    for line_num, line in enumerate(lines[1:], start=2):
+        line = line.strip()
+        if not line:  # Skip empty lines
+            continue
+        
+        # Find indices and expression
+        parts = line.split(maxsplit=2)
+        if len(parts) != 3:
+            raise ValueError(f"Error in line {line_num}: Each line should contain index i, index j, and expression g_ij")
+        
+        try:
+            i, j = int(parts[0]), int(parts[1])
+            if i >= n or j >= n or i < 0 or j < 0:
+                raise ValueError(f"Error in line {line_num}: Indices (i,j)=({i},{j}) out of range [0,{n-1}]")
+            
+            # Save the original expression text
+            expr_text = parts[2]
+            original_expressions[(i, j)] = expr_text
+            original_expressions[(j, i)] = expr_text  # symmetry
+            
+            # Fix common notation differences (^ for power instead of **)
+            expr_text = expr_text.replace('^', '**')
+            
+            # Log the expression we're about to parse
+            logger.info(f"Parsing expression: {expr_text} with dictionary keys: {list(local_dict.keys())}")
+            
+            # Convert to SymPy expression
+            try:
+                value = sp.sympify(expr_text, locals=local_dict, evaluate=True)
+                metric[(i, j)] = value
+                metric[(j, i)] = value  # metric is symmetric
+                logger.info(f"Successfully parsed expression {expr_text} to {value}")
+            except Exception as e:
+                logger.error(f"Error parsing expression '{expr_text}' in line {line_num}: {str(e)}")
+                
+                # Try alternative approach for expressions with functions
+                try:
+                    # Replace a(t) directly with a_t
+                    modified_expr = re.sub(r'([a-zA-Z]+)\(([a-zA-Z]+)\)', r'\1_\2', expr_text)
+                    logger.info(f"Trying modified expression: {modified_expr}")
+                    
+                    # Define new symbols for functions
+                    for func_name, arg_name in func_matches:
+                        func_symbol_name = f"{func_name}_{arg_name}"
+                        local_dict[func_symbol_name] = sp.Symbol(func_symbol_name)
+                    
+                    value = sp.sympify(modified_expr, locals=local_dict)
+                    metric[(i, j)] = value
+                    metric[(j, i)] = value
+                    logger.info(f"Successfully parsed with modified expression {modified_expr} to {value}")
+                except Exception as e2:
+                    logger.error(f"Alternative approach also fails: {str(e2)}")
+                    raise ValueError(f"Cannot interpret expression '{expr_text}' in line {line_num}")
+            
+        except ValueError as e:
+            if "invalid literal for int()" in str(e):
+                raise ValueError(f"Error in line {line_num}: Indices must be integers")
+            raise
+        except Exception as e:
+            raise ValueError(f"Error processing metric in line: {line}") from e
+    
+    if not metric:
+        raise ValueError("No metric components found")
+    
+    # Check for completeness of the metric
+    for i in range(n):
+        for j in range(n):
+            if (i, j) not in metric:
+                metric[(i, j)] = 0
+                metric[(j, i)] = 0
+                original_expressions[(i, j)] = "0"
+                original_expressions[(j, i)] = "0"
+    
+    logger.info(f"FLRW metric parsed successfully. Dimension: {n}")
+    return coordinates, metric, original_expressions

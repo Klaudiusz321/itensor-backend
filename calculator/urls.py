@@ -5,4 +5,7 @@ urlpatterns = [
     path('calculate', views.calculate_view, name='calculate'),
     path('task_status/<str:task_id>/', views.task_status_view, name='task_status'),
     path('differential-operators/', views.differential_operators, name='differential_operators'),
+    path('flrw-metric/', views.calculate_flrw_view, name='flrw_metric'),
 ]
+
+   

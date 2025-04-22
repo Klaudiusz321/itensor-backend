@@ -136,7 +136,7 @@ def initialize_face_centered_b(cell_centered_b, grid_shape):
     
     return face_b
 
-def compute_emf(velocity, magnetic_field, grid_spacing):
+def compute_emf(velocity, magnetic_field, grid_spacing=None):
     """
     Compute the electromotive force (EMF) for constrained transport.
     
@@ -148,7 +148,7 @@ def compute_emf(velocity, magnetic_field, grid_spacing):
     Args:
         velocity: List of velocity components [vx, vy, vz]
         magnetic_field: List of face-centered magnetic field components [Bx, By, Bz]
-        grid_spacing: Grid spacing in each direction
+        grid_spacing: Grid spacing in each direction (optional, not used in current implementation)
         
     Returns:
         Electromotive force components at cell edges

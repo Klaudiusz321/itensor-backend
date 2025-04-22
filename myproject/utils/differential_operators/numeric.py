@@ -203,433 +203,157 @@ def discretize_vector_field(field_funcs: List[Callable], grid: List[np.ndarray])
     """
     return [discretize_field(func, grid) for func in field_funcs]
 
-def compute_partial_derivative(field: np.ndarray, grid: List[np.ndarray], 
-                              direction: int, order: int = 2) -> np.ndarray:
+def compute_partial_derivative(field: np.ndarray,
+                               grid: List[np.ndarray],
+                               direction: int,
+                               order: int = 2) -> np.ndarray:
     """
-    Compute partial derivative of a field using finite differences.
+    Compute ∂_direction field on a (possibly non‑uniform) grid.
     
-    Args:
-        field: Array of field values at grid points
-        grid: List of arrays containing the coordinate values along each axis
-        direction: Direction (axis) along which to differentiate
-        order: Order of accuracy (1: forward/backward, 2: central)
-        
-    Returns:
-        Array of derivative values
+    This version vectorizes across all other axes and
+    delegates to np.gradient for 2nd‑order central differences.
     """
-    # Check dimensions and add debug information
-    field_shape = field.shape
     expected_ndim = len(grid)
-    
-    # Print debug information about the field and grid
-    logger.debug(f"Field shape: {field_shape}, Grid dimensions: {expected_ndim}, Direction: {direction}")
-    
-    # Handle case where field has fewer dimensions than expected
+    # ── 1) Expand lower‑dimensional fields to full rank ──────────────────────
     if field.ndim < expected_ndim:
-        logger.warning(f"Field has {field.ndim} dimensions but expected at least {expected_ndim}. " 
-                      f"This may cause issues when computing derivatives along axis {direction}.")
-        
-        # Reshape the field to match the expected dimensions if needed
-        if direction >= field.ndim:
-            logger.info(f"Reshaping field with shape {field_shape} to have at least {direction+1} dimensions")
-            
-            # Create a new shape with the right number of dimensions
-            new_shape = list(field_shape) + [1] * (direction + 1 - field.ndim)
-            reshaped_field = field.reshape(new_shape)
-            logger.info(f"Reshaped field to {reshaped_field.shape}")
-            
-            # Use the reshaped field for derivative computation
-            field = reshaped_field
-    
-    # Get the coordinate spacing
-    dx = grid[direction][1] - grid[direction][0]
-    
-    # Use np.gradient for central differences (2nd order accurate)
-    if order == 2:
-        # Using numpy's gradient which handles non-uniform spacing
-        try:
-            # When computing gradient along a specific axis, we only need to provide
-            # the coordinate array for that axis, not all axes
-            grad = np.gradient(field, grid[direction], axis=direction, edge_order=2)
-            return grad
-        except np.exceptions.AxisError as e:
-            # Handle the axis error more gracefully
-            logger.error(f"Axis error when computing gradient: {e}")
-            logger.error(f"Field shape: {field.shape}, attempting derivative along axis {direction}")
-            
-            # If the field has fewer dimensions than direction, reshape it
-            if field.ndim <= direction:
-                # Create a new shape with enough dimensions
-                new_shape = [1] * (direction + 1)
-                if field.ndim > 0:
-                    for i in range(field.ndim):
-                        new_shape[i] = field.shape[i]
-                
-                reshaped_field = field.reshape(new_shape)
-                logger.warning(f"Reshaped field from {field.shape} to {reshaped_field.shape} for axis {direction}")
-                
-                # Try again with the reshaped field
-                try:
-                    grad = np.gradient(reshaped_field, grid[direction], axis=direction, edge_order=2)
-                    return grad
-                except Exception as reshape_error:
-                    logger.error(f"Error after reshaping: {reshape_error}")
-            
-            # If still failing after reshape or for other reasons
-            try:
-                # Fall back to simpler method - compute along existing dimensions only
-                if field.ndim > 0 and direction < field.ndim:
-                    return np.gradient(field, grid[direction], axis=direction)
-                else:
-                    # For scalar or completely incompatible dimensions
-                    return np.zeros_like(field)
-            except Exception as fallback_error:
-                logger.error(f"Fallback gradient method failed: {fallback_error}")
-                return np.zeros_like(field)
-    
-    # For 1st order, implement forward and backward differences
-    elif order == 1:
-        # Forward difference at the beginning, backward at the end, central in the middle
-        result = np.zeros_like(field)
-        
-        # Handle 1D case differently
-        if field.ndim == 1 and direction == 0:
-            # Forward difference for first point
-            result[0] = (field[1] - field[0]) / dx
-            
-            # Central difference for middle points
-            result[1:-1] = (field[2:] - field[:-2]) / (2 * dx)
-            
-            # Backward difference for last point
-            result[-1] = (field[-1] - field[-2]) / dx
-            
-            return result
-        
-        # For multi-dimensional arrays, use slicing with tuple indexing
-        try:
-            slices_before = [slice(None)] * field.ndim
-            slices_at = [slice(None)] * field.ndim
-            slices_after = [slice(None)] * field.ndim
-            
-            # Forward difference for first point
-            slices_at[direction] = slice(0, 1)
-            slices_after[direction] = slice(1, 2)
-            result[tuple(slices_at)] = (field[tuple(slices_after)] - field[tuple(slices_at)]) / dx
-            
-            # Central difference for middle points
-            slices_before[direction] = slice(0, -2)
-            slices_at[direction] = slice(1, -1)
-            slices_after[direction] = slice(2, None)
-            result[tuple(slices_at)] = (field[tuple(slices_after)] - field[tuple(slices_before)]) / (2 * dx)
-            
-            # Backward difference for last point
-            slices_before[direction] = slice(-2, -1)
-            slices_at[direction] = slice(-1, None)
-            result[tuple(slices_at)] = (field[tuple(slices_at)] - field[tuple(slices_before)]) / dx
-            
-            return result
-        except (IndexError, ValueError) as e:
-            logger.error(f"Error in 1st order derivative: {e}")
-            logger.error(f"Field shape: {field.shape}, direction: {direction}")
-            
-            # Fall back to zeros if all else fails
-            return np.zeros_like(field)
-    
-    else:
-        raise ValueError(f"Order {order} not supported for finite differences")
+        # append singleton dims at the end
+        new_shape = field.shape + (1,) * (expected_ndim - field.ndim)
+        logger.debug(f"Reshaping field {field.shape} → {new_shape}")
+        field = field.reshape(new_shape)
 
-def compute_christoffel_on_grid(metric_funcs: List[List[Callable]], grid: List[np.ndarray]) -> np.ndarray:
+    # ── 2) 2nd‑order central differences via numpy ───────────────────────────
+    if order == 2:
+        try:
+            # Only need the coordinate array for this axis
+            return np.gradient(field,
+                               grid[direction],
+                               axis=direction,
+                               edge_order=2)
+        except Exception as e:
+            logger.error(f"np.gradient failed on axis {direction}: {e}")
+            # fall through to 1st‑order below
+
+    # ── 3) 1st‑order forward/backward stencil fallback ──────────────────────
+    if order == 1 or order == 2:
+        dx = np.diff(grid[direction])
+        # uniform‑spacing assumption for simplicity:
+        if not np.allclose(dx, dx[0]):
+            logger.warning("Non‑uniform spacing detected; using average dx")
+        dx0 = dx.mean()
+
+        # prepare result container
+        deriv = np.zeros_like(field)
+
+        # build slices
+        slc0 = [slice(None)] * expected_ndim
+        slc1 = [slice(None)] * expected_ndim
+
+        # forward diff at start
+        slc0[direction] = 0
+        slc1[direction] = 1
+        deriv[tuple(slc0)] = (field[tuple(slc1)] - field[tuple(slc0)]) / dx0
+
+        # backward diff at end
+        slc0[direction] = -1
+        slc1[direction] = -2
+        deriv[tuple(slc0)] = (field[tuple(slc0)] - field[tuple(slc1)]) / dx0
+
+        # central diff in the bulk
+        slc0[direction] = slice(2, None)
+        slc1[direction] = slice(None, -2)
+        mid = [slice(None)] * expected_ndim
+        mid[direction] = slice(1, -1)
+        deriv[tuple(mid)] = (field[tuple(slc0)] - field[tuple(slc1)]) / (2 * dx0)
+
+        return deriv
+
+    # ── 4) unsupported order ─────────────────────────────────────────────────
+    raise ValueError(f"Unsupported finite‑difference order: {order}")
+
+import numpy as np
+import logging
+from typing import List, Callable
+
+logger = logging.getLogger(__name__)
+
+def compute_metric_derivatives(metric: np.ndarray,
+                               grid: List[np.ndarray]) -> np.ndarray:
     """
-    Compute Christoffel symbols on a grid with robust handling of near-singular metrics.
-    
-    Args:
-        metric_funcs: List of callables for metric components
-        grid: List of arrays containing the coordinate values along each axis
-        
-    Returns:
-        Array of Christoffel symbols at each grid point
+    Vectorized finite-difference: returns ∂_d g_{ij} for all i,j and grid directions d.
+    metric: shape (..., n, n)
+    returns: shape (..., n, n, n)
     """
-    import warnings
-    from numpy.linalg import LinAlgError
-    
+    # gradient returns list of arrays, one per grid axis
+    derivs = np.gradient(metric, *grid,
+                         axis=tuple(range(metric.ndim - 2)),
+                         edge_order=2)
+    # stack along new last axis
+    return np.stack(derivs, axis=-1)
+
+
+def compute_christoffel_on_grid(metric_funcs: List[List[Callable]],
+                                grid: List[np.ndarray]) -> np.ndarray:
+    """
+    Compute Christoffel symbols Γ^k_{ij} on a curvilinear grid.
+
+    metric_funcs: n×n list of callables f(point)→g_{ij}
+    grid: list of arrays for each coordinate axis
+
+    Returns: array shape grid_shape+(n,n,n)
+    """
     n = len(grid)
-    
-    # Create meshgrid for evaluation
-    mesh = np.meshgrid(*grid, indexing='ij')
-    grid_shape = [len(g) for g in grid]
-    
-    # Log basic information about the calculation
-    logger.info(f"Computing Christoffel symbols on grid with shape {grid_shape}")
-    
-    # Check that metric_funcs has the right dimensions
-    if len(metric_funcs) != n or any(len(row) != n for row in metric_funcs):
-        logger.error(f"Metric functions array has incorrect dimensions: {len(metric_funcs)}x{len(metric_funcs[0] if metric_funcs else 0)}, expected {n}x{n}")
-        logger.warning("Attempting to continue with available metric components")
-    
-    # Try to get a sample metric value to check if it's a constant metric
-    try:
-        sample_point = [grid[d][0] for d in range(n)]
-        sample_metric = np.zeros((n, n))
-        
-        # Track which components are callable vs. constants
-        component_types = np.zeros((n, n), dtype=int)  # 0 for constant, 1 for callable
-        
-        for i in range(n):
-            for j in range(n):
-                if i < len(metric_funcs) and j < len(metric_funcs[i]):
-                    if callable(metric_funcs[i][j]):
-                        sample_metric[i, j] = metric_funcs[i][j](sample_point)
-                        component_types[i, j] = 1
-                    else:
-                        # If not callable, assume it's a constant value
-                        try:
-                            sample_metric[i, j] = float(metric_funcs[i][j])
-                        except (TypeError, ValueError):
-                            logger.warning(f"Metric component [{i},{j}] is neither callable nor convertible to float, using 0.0")
-                            sample_metric[i, j] = 0.0
-                else:
-                    # Handle missing components gracefully
-                    logger.warning(f"Metric component [{i},{j}] is missing, using 0.0")
-                    sample_metric[i, j] = 0.0
-        
-        # Ensure metric is symmetric
-        if not np.allclose(sample_metric, sample_metric.T, rtol=1e-5):
-            logger.warning("Metric tensor is not symmetric at sample point. This may cause incorrect results.")
-            # Make it symmetric by averaging
-            sample_metric = 0.5 * (sample_metric + sample_metric.T)
-        
-        # Check if all metric functions return constant values
-        is_constant_metric = True
-        num_test_points = min(3, min(len(g) for g in grid))  # Test at most 3 points
-        
-        for idx in range(num_test_points):
-            idx_scaled = idx * (len(grid[0]) - 1) // (num_test_points - 1)  # Distribute across grid
-            test_point = [grid[d][min(idx_scaled, len(grid[d])-1)] for d in range(n)]
-            
-            for i in range(n):
-                for j in range(n):
-                    if i < len(metric_funcs) and j < len(metric_funcs[i]) and callable(metric_funcs[i][j]):
-                        try:
-                            metric_val = metric_funcs[i][j](test_point)
-                            if abs(metric_val - sample_metric[i, j]) > 1e-8:
-                                is_constant_metric = False
-                                break
-                        except Exception as e:
-                            logger.warning(f"Error evaluating metric function at {test_point}: {e}")
-                            is_constant_metric = False
-                            break
-                if not is_constant_metric:
-                    break
-            if not is_constant_metric:
-                break
-        
-        # Check metric determinant
-        try:
-            det = np.linalg.det(sample_metric)
-            if abs(det) < 1e-10:
-                logger.warning(f"Near-singular metric detected at sample point (det={det:.2e})")
-                
-                # Analyze eigenvalues to understand the singularity
-                try:
-                    eigenvals = np.linalg.eigvals(sample_metric)
-                    logger.info(f"Metric eigenvalues at sample point: {eigenvals}")
-                    min_eigval = np.min(np.abs(eigenvals))
-                    if min_eigval < 1e-10:
-                        logger.warning(f"Small eigenvalue detected: {min_eigval:.2e}")
-                except Exception as e:
-                    logger.warning(f"Could not compute eigenvalues: {e}")
-                
-                # Attempt to regularize if needed
-                if abs(det) < 1e-15:
-                    logger.info("Regularizing sample metric to avoid singularity")
-                    for i in range(n):
-                        sample_metric[i, i] += 1e-8
-                    det = np.linalg.det(sample_metric)
-                    logger.info(f"After regularization, det = {det:.2e}")
-        except LinAlgError as e:
-            logger.warning(f"Linear algebra error with sample metric: {e}")
-            is_constant_metric = False
-        
-        if is_constant_metric:
-            logger.info("Detected constant metric tensor - using optimized computation")
-            # For constant metric, simplified computation
-            metric = sample_metric
-            
-            try:
-                det = np.linalg.det(metric)
-                if abs(det) < 1e-10:
-                    logger.warning(f"Singular metric detected (det={det:.2e}). Using pseudoinverse.")
-                    metric_inv = np.linalg.pinv(metric)
-                else:
-                    try:
-                        metric_inv = np.linalg.inv(metric)
-                    except LinAlgError:
-                        # Add a small regularization if needed
-                        logger.warning("Error inverting metric. Using pseudoinverse.")
-                        metric_inv = np.linalg.pinv(metric)
-                
-                # For Cartesian coordinates with identity metric, all Christoffel symbols are zero
-                if np.allclose(metric, np.eye(n), rtol=1e-5, atol=1e-5):
-                    logger.info("Identity metric detected, all Christoffel symbols are zero")
-                    return np.zeros(grid_shape + (n, n, n))
-                
-                # For constant non-Cartesian metric, compute derivatives
-                metric_deriv = np.zeros((n, n, n))
-                
-                # For constant metric, all derivatives should be zero
-                # Initialize Christoffel symbols array
-                Gamma = np.zeros(grid_shape + (n, n, n))
-                
-                for k in range(n):
-                    for i in range(n):
-                        for j in range(n):
-                            # For constant metric, Christoffel symbols are constant everywhere
-                            gamma_value = 0.0  # Will remain zero for constant metric
-                            
-                            # Fill the entire grid with the same value
-                            for idx in np.ndindex(*grid_shape):
-                                Gamma[idx][k][i][j] = gamma_value
-                
-                logger.info("Constant metric computation complete")
-                return Gamma
-            
-            except Exception as e:
-                logger.warning(f"Error in constant metric computation: {e}")
-                logger.info("Falling back to position-dependent computation")
-                # Continue with regular computation
-    
-    except Exception as e:
-        logger.warning(f"Error checking for constant metric: {e}")
-        logger.info("Proceeding with position-dependent metric computation")
-    
-    # Position-dependent metric computation
-    logger.info("Computing position-dependent Christoffel symbols")
-    
-    # Initialize arrays for metric and its derivatives
+    grid_shape = tuple(len(axis) for axis in grid)
+
+    # 1) Build metric array at all points: shape grid_shape+(n,n)
     metric = np.zeros(grid_shape + (n, n))
-    metric_inv = np.zeros_like(metric)
-    metric_deriv = np.zeros(grid_shape + (n, n, n))  # Additional index for derivative direction
-    
-    # Track metrics that couldn't be inverted
-    inversion_failures = 0
-    regularization_count = 0
-    
-    # Compute metric at each grid point
-    for idx in np.ndindex(*grid_shape):
+    for idx in np.ndindex(grid_shape):
         point = [grid[d][idx[d]] for d in range(n)]
-        
-        # Evaluate metric components at this point
-        g_point = np.zeros((n, n))
+        g = np.zeros((n, n))
         for i in range(n):
             for j in range(n):
-                try:
-                    if i < len(metric_funcs) and j < len(metric_funcs[i]):
-                        if callable(metric_funcs[i][j]):
-                            g_point[i, j] = metric_funcs[i][j](point)
-                        else:
-                            # Use the constant value
-                            g_point[i, j] = metric_funcs[i][j]
-                    else:
-                        # Use delta_ij (identity) for missing components
-                        g_point[i, j] = 1.0 if i == j else 0.0
-                except Exception as e:
-                    # If there's an error evaluating the metric, use a reasonable default
-                    logger.warning(f"Error evaluating metric[{i},{j}] at {point}: {e}")
-                    g_point[i, j] = 1.0 if i == j else 0.0
-        
-        # Ensure metric is symmetric
-        g_point = 0.5 * (g_point + g_point.T)
-        
-        # Check if the metric is singular and use appropriate inversion method
-        try:
-            det = np.linalg.det(g_point)
-            
-            # Debug info for first few points and problematic points
-            if idx == (0,) * len(grid_shape) or abs(det) < 1e-10:
-                eigenvals = np.linalg.eigvals(g_point)
-                logger.debug(f"Metric at {idx}: det={det:.2e}, eigenvalues={eigenvals}")
-            
-            if abs(det) < 1e-10:
-                # Try to regularize first
-                regularized = g_point.copy()
-                for i in range(n):
-                    regularized[i, i] += 1e-8
-                
-                reg_det = np.linalg.det(regularized)
-                if reg_det > 1e-10:
-                    logger.debug(f"Regularized metric at {idx}: det improved from {det:.2e} to {reg_det:.2e}")
-                    metric[idx] = regularized
-                    metric_inv[idx] = np.linalg.inv(regularized)
-                    regularization_count += 1
+                comp = metric_funcs[i][j] if i < len(metric_funcs) and j < len(metric_funcs[i]) else None
+                if callable(comp):
+                    g[i, j] = comp(point)
                 else:
-                    # If regularization doesn't help enough, use pseudoinverse
-                    logger.warning(f"Singular matrix at grid point {idx} (det={det:.2e}). Using pseudoinverse.")
-                    metric[idx] = g_point
-                    metric_inv[idx] = np.linalg.pinv(g_point)
-                    inversion_failures += 1
-            else:
-                metric[idx] = g_point
-                metric_inv[idx] = np.linalg.inv(g_point)
-        except LinAlgError as e:
-            inversion_failures += 1
-            logger.warning(f"Inversion error at grid point {idx}: {e}")
-            metric[idx] = g_point
-            # Use pseudoinverse for more robust handling of singular or near-singular matrices
-            metric_inv[idx] = np.linalg.pinv(g_point)
-    
-    # Log summary of metric computation
-    if inversion_failures > 0:
-        logger.warning(f"{inversion_failures} grid points required pseudoinverse (out of {np.prod(grid_shape)})")
-    if regularization_count > 0:
-        logger.info(f"{regularization_count} grid points were regularized to avoid singularity")
-    
-    # Compute metric derivatives using finite differences
-    for d in range(n):  # Derivative direction
-        for i in range(n):
-            for j in range(n):
-                metric_component = metric[..., i, j]
-                try:
-                    metric_deriv[..., i, j, d] = compute_partial_derivative(metric_component, grid, d)
-                except Exception as e:
-                    logger.error(f"Error computing metric derivative [{i},{j}] in direction {d}: {e}")
-                    # Use zeros as fallback
-                    metric_deriv[..., i, j, d] = np.zeros_like(metric_component)
-    
-    # Initialize Christoffel symbols array
-    Gamma = np.zeros(grid_shape + (n, n, n))  # Indexed as Gamma[x,y,z,...][k][i][j]
-    
-    # Compute Christoffel symbols at each grid point using the formula:
-    # Γ^k_ij = (1/2) g^kl (∂_i g_lj + ∂_j g_li - ∂_l g_ij)
-    for idx in np.ndindex(*grid_shape):
-        g_inv = metric_inv[idx]
-        g_deriv = metric_deriv[idx]
-        
-        for k in range(n):
-            for i in range(n):
-                for j in range(n):
-                    sum_term = 0
-                    for l in range(n):
-                        term1 = g_deriv[l, j, i]  # ∂_i g_lj
-                        term2 = g_deriv[l, i, j]  # ∂_j g_li
-                        term3 = g_deriv[i, j, l]  # ∂_l g_ij
-                        sum_term += g_inv[k, l] * (term1 + term2 - term3)
-                    
-                    Gamma[idx][k][i][j] = 0.5 * sum_term
-    
-    # Verify Christoffel symbols
-    # Check for NaN or Inf values
-    if np.any(~np.isfinite(Gamma)):
-        logger.error("Non-finite values detected in Christoffel symbols")
-        # Replace NaN/Inf with zeros
+                    g[i, j] = float(comp) if comp is not None else (1.0 if i == j else 0.0)
+        metric[idx] = 0.5 * (g + g.T)  # enforce symmetry
+
+    # 2) Invert metric at each point
+    metric_inv = np.zeros_like(metric)
+    for idx in np.ndindex(grid_shape):
+        g = metric[idx]
+        try:
+            metric_inv[idx] = np.linalg.inv(g)
+        except np.linalg.LinAlgError:
+            metric_inv[idx] = np.linalg.pinv(g)
+
+    # 3) Compute metric derivatives: shape grid_shape+(n,n,n)
+    metric_deriv = compute_metric_derivatives(metric, grid)
+
+    # 4) Build S_{l,i,j} = ∂_i g_{l j} + ∂_j g_{l i} - ∂_l g_{i j}
+    # metric_deriv[..., i, j, d] = ∂_d g_{i j}
+    # We need axes: (..., l, i, j) for S
+    # transpose metric_deriv to (..., l, j, i, d)
+    md = metric_deriv
+    # create S with shape grid_shape+(n,n,n)
+    # use broadcasting of tensor contractions via einsum
+    # S[..., l, i, j] = md[..., l, j, i] + md[..., l, i, j] - md[..., i, j, l]
+    S = (
+        md.transpose(*range(md.ndim-3), 2,3,1) +  # (..., l, i, j)
+        md.transpose(*range(md.ndim-3), 2,1,3) -  # (..., l, j, i)
+        md.transpose(*range(md.ndim-3), 1,2,3)    # (..., i, j, l)
+    )
+
+    # 5) Contract: Γ[...,k,i,j] = 0.5 * g^{k l} S[...,l,i,j]
+    Gamma = 0.5 * np.einsum('...kl,...lij->...kij', metric_inv, S)
+
+    # 6) Cleanup any non-finite values
+    if not np.all(np.isfinite(Gamma)):
+        logger.warning("Non-finite Christoffel values found; replacing with zero.")
         Gamma = np.nan_to_num(Gamma)
-    
-    # Check for unusually large values that might indicate numerical issues
-    max_abs_gamma = np.max(np.abs(Gamma))
-    if max_abs_gamma > 1e6:
-        logger.warning(f"Very large Christoffel symbol detected: {max_abs_gamma:.2e}")
-    
-    logger.info("Position-dependent Christoffel symbol computation complete")
+
     return Gamma
+
 
 def evaluate_gradient(scalar_field: np.ndarray, metric_inverse: np.ndarray, 
                      grid: List[np.ndarray]) -> List[np.ndarray]:
@@ -827,614 +551,269 @@ def evaluate_gradient(scalar_field: np.ndarray, metric_inverse: np.ndarray,
     
     return gradient
 
-def evaluate_divergence(vector_field: List[np.ndarray], metric: np.ndarray, 
-                       grid: List[np.ndarray], is_contravariant: bool = True) -> np.ndarray:
+import numpy as np
+import logging
+from typing import List, Any
+
+logger = logging.getLogger(__name__)
+
+def evaluate_divergence(vector_field: List[np.ndarray],
+                        metric: np.ndarray,
+                        grid: List[np.ndarray],
+                        is_contravariant: bool = True) -> np.ndarray:
     """
-    Compute the divergence of a vector field numerically.
-    
-    Args:
-        vector_field: List of arrays for vector components
-        metric: Array of metric values at each point
-        grid: List of arrays containing the coordinate values along each axis
-        is_contravariant: Whether the vector field has contravariant components
-        
-    Returns:
-        Array of divergence values
+    Compute divergence of a vector field on a curvilinear grid:
+        div V = (1/√|g|) ∂_i(√|g| V^i)
+
+    This version is fully vectorized using NumPy.
     """
-    import warnings
+    # Number of dimensions
     n = len(grid)
-    grid_shape = [len(g) for g in grid]
-    
-    # Check and reshape vector field components if needed
-    reshaped_vector_field = []
-    for i, component in enumerate(vector_field):
-        comp_shape = component.shape
-        
-        # Log information about component shape
-        logger.debug(f"Vector component {i} shape: {comp_shape}, grid dimensions: {grid_shape}")
-        
-        if component.ndim < n:
-            logger.warning(f"Vector component {i} has {component.ndim} dimensions but grid has {n} dimensions")
-            
-            # For 1D field with higher dimensional grid, reshape to be compatible
-            if component.ndim == 1:
-                # Check if first dimension is compatible
-                if len(component) == grid_shape[0]:
-                    # Create a broadcast-compatible shape
-                    broadcast_shape = list(grid_shape)
-                    broadcast_shape[0] = len(component)
-                    
-                    # Reshape to add singleton dimensions
-                    new_shape = [len(component)] + [1] * (n - 1)
-                    reshaped = component.reshape(new_shape)
-                    
-                    # Broadcast to fill grid
-                    try:
-                        broadcasted = np.broadcast_to(reshaped, broadcast_shape)
-                        logger.info(f"Reshaped and broadcast component {i} from {comp_shape} to {broadcast_shape}")
-                        reshaped_vector_field.append(broadcasted)
-                        continue
-                    except Exception as e:
-                        logger.error(f"Failed to broadcast component: {e}")
-            
-            # Generic approach for other dimension mismatches
-            try:
-                # Create a new array of the right shape filled with zeros
-                full_shape_component = np.zeros(grid_shape, dtype=component.dtype)
-                
-                # Copy values where possible
-                if component.ndim == 1 and len(component) <= grid_shape[0]:
-                    # Fill first dimension, zeros elsewhere
-                    slices = [slice(None)] + [0] * (n - 1)
-                    full_shape_component[tuple(slices)[:len(component)]] = component
-                else:
-                    # Try to copy values from the original component
-                    slice_list = []
-                    for d in range(min(component.ndim, n)):
-                        if d < component.ndim and d < len(grid_shape):
-                            dim_size = min(component.shape[d], grid_shape[d])
-                            slice_list.append(slice(0, dim_size))
-                        else:
-                            slice_list.append(0)
-                    
-                    target_slices = tuple(slice_list)
-                    source_slices = tuple(slice_list[:component.ndim])
-                    full_shape_component[target_slices] = component[source_slices]
-                
-                logger.info(f"Reshaped component {i} from {comp_shape} to {grid_shape}")
-                reshaped_vector_field.append(full_shape_component)
-            except Exception as e:
-                logger.error(f"Error reshaping component {i}: {e}")
-                # If all else fails, use the original component
-                reshaped_vector_field.append(component)
-        else:
-            # Component already has the right number of dimensions
-            if component.shape != tuple(grid_shape):
-                logger.warning(f"Component {i} shape {component.shape} doesn't match grid shape {grid_shape}")
-                # Try to reshape or pad if possible
-                try:
-                    if np.prod(component.shape) == np.prod(grid_shape):
-                        # If same number of elements, reshape
-                        reshaped = component.reshape(grid_shape)
-                        logger.info(f"Reshaped component {i} to match grid shape")
-                        reshaped_vector_field.append(reshaped)
-                    else:
-                        # If different number of elements, we can't simply reshape
-                        reshaped_vector_field.append(component)
-                except Exception as e:
-                    logger.error(f"Failed to reshape component {i}: {e}")
-                    reshaped_vector_field.append(component)
-            else:
-                reshaped_vector_field.append(component)
-    
-    # Use the reshaped vector field from now on
-    grid_shape = reshaped_vector_field[0].shape
-    
-    # If vector is not contravariant, convert it
+    # Stack components: shape (..., n)
+    V = np.stack(vector_field, axis=-1)
+
+    # If covariant, raise indices to contravariant
     if not is_contravariant:
-        # Compute metric inverse for raising indices
-        if metric.ndim == 2:  # constant metric
-            # Check determinant before inversion
-            det = np.linalg.det(metric)
-            if abs(det) < 1e-10:
-                warnings.warn(f"Singular constant metric detected (det={det}). Using pseudoinverse.")
-                metric_inverse = np.linalg.pinv(metric)
-            else:
-                try:
-                    metric_inverse = np.linalg.inv(metric)
-                except np.linalg.LinAlgError as e:
-                    warnings.warn(f"Error inverting constant metric: {e}. Using pseudoinverse.")
-                    metric_inverse = np.linalg.pinv(metric)
-                
-            vector_contravariant = [np.zeros(grid_shape) for _ in range(n)]
-            for i in range(n):
-                for j in range(n):
-                    vector_contravariant[i] += metric_inverse[i, j] * reshaped_vector_field[j]
-        else:  # position-dependent metric
-            metric_inverse = np.zeros(grid_shape + (n, n))
-            for idx in np.ndindex(*grid_shape):
-                try:
-                    # Check determinant before inversion
-                    det = np.linalg.det(metric[idx])
-                    if abs(det) < 1e-10:
-                        if not np.isclose(abs(det), 0):  # Only warn if not exactly zero
-                            warnings.warn(f"Small determinant at grid point {idx}: {det}. Using regularized inverse.")
-                        # Add small regularization for numerical stability
-                        metric_at_point = metric[idx].copy()
-                        for i in range(n):
-                            metric_at_point[i, i] += 1e-10
-                        metric_inverse[idx] = np.linalg.inv(metric_at_point)
-                    else:
-                        metric_inverse[idx] = np.linalg.inv(metric[idx])
-                except np.linalg.LinAlgError as e:
-                    warnings.warn(f"Inversion error at grid point {idx}: {e}. Using pseudoinverse.")
-                    # Use pseudoinverse for more robust handling of singular matrices
-                    metric_inverse[idx] = np.linalg.pinv(metric[idx])
-            
-            # Raise indices to get contravariant components
-            vector_contravariant = [np.zeros(grid_shape) for _ in range(n)]
-            for i in range(n):
-                for j in range(n):
-                    vector_contravariant[i] += metric_inverse[..., i, j] * reshaped_vector_field[j]
+        # metric shape: (..., n, n) or (n, n)
+        if metric.ndim == 2:
+            inv = np.linalg.pinv(metric)
+            V = np.einsum('ij,...j->...i', inv, V)
+        else:
+            # position-dependent: shape (..., n, n)
+            inv = np.linalg.inv(metric)
+            V = np.einsum('...ij,...j->...i', inv, V)
+
+    # Compute metric determinant and sqrt |g|
+    if metric.ndim == 2:
+        det = np.linalg.det(metric)
+        sqrtg = np.sqrt(max(det, 1e-10))
     else:
-        vector_contravariant = reshaped_vector_field
-    
-    # Compute metric determinant
-    g_det = np.zeros(grid_shape)
-    
-    if metric.ndim == 2:  # constant metric
-        g_det.fill(np.linalg.det(metric))
-    else:  # position-dependent metric
-        for idx in np.ndindex(*grid_shape):
-            try:
-                g_det[idx] = np.linalg.det(metric[idx])
-            except:
-                # If there's an error computing determinant, use a small positive value
-                g_det[idx] = 1e-10
-    
-    # Ensure determinant is not too close to zero
-    g_det = np.maximum(g_det, 1e-10)
-    g_det_sqrt = np.sqrt(np.abs(g_det))
-    
-    # Compute divergence using the formula:
-    # div V = (1/√|g|) ∂_i(√|g| V^i)
-    divergence = np.zeros(grid_shape)
-    
-    for i in range(n):
-        # Compute √|g| * V^i
-        weighted_component = g_det_sqrt * vector_contravariant[i]
-        
-        # Compute partial derivative and add to divergence
-        try:
-            div_term = compute_partial_derivative(weighted_component, grid, i)
-            divergence += div_term
-        except Exception as e:
-            logger.error(f"Error computing partial derivative for component {i}: {e}")
-            # Try a more robust approach if the standard method fails
-            try:
-                # For 1D grids, use simple finite differences
-                if len(grid[i]) > 2:
-                    # Get the coordinate spacing
-                    dx = grid[i][1] - grid[i][0]
-                    
-                    # Create slices for neighboring points
-                    slices_before = [slice(None)] * weighted_component.ndim
-                    slices_at = [slice(None)] * weighted_component.ndim
-                    slices_after = [slice(None)] * weighted_component.ndim
-                    
-                    # Central difference for interior points
-                    slices_before[i] = slice(0, -2)
-                    slices_at[i] = slice(1, -1)
-                    slices_after[i] = slice(2, None)
-                    
-                    interior_derivative = (weighted_component[tuple(slices_after)] - 
-                                          weighted_component[tuple(slices_before)]) / (2 * dx)
-                    
-                    # Forward/backward differences for boundaries
-                    boundary_derivative = np.zeros_like(weighted_component)
-                    
-                    # Forward difference for first point
-                    slices_at[i] = 0
-                    slices_after[i] = 1
-                    boundary_derivative[tuple(slices_at)] = (weighted_component[tuple(slices_after)] - 
-                                                            weighted_component[tuple(slices_at)]) / dx
-                    
-                    # Backward difference for last point
-                    slices_before[i] = -2
-                    slices_at[i] = -1
-                    boundary_derivative[tuple(slices_at)] = (weighted_component[tuple(slices_at)] - 
-                                                            weighted_component[tuple(slices_before)]) / dx
-                    
-                    # Combine interior and boundary derivatives
-                    div_term = np.zeros_like(weighted_component)
-                    interior_slices = [slice(None)] * weighted_component.ndim
-                    interior_slices[i] = slice(1, -1)
-                    div_term[tuple(interior_slices)] = interior_derivative
-                    
-                    # Add boundary derivatives
-                    boundary_slices_first = [slice(None)] * weighted_component.ndim
-                    boundary_slices_first[i] = 0
-                    boundary_slices_last = [slice(None)] * weighted_component.ndim
-                    boundary_slices_last[i] = -1
-                    
-                    div_term[tuple(boundary_slices_first)] = boundary_derivative[tuple(boundary_slices_first)]
-                    div_term[tuple(boundary_slices_last)] = boundary_derivative[tuple(boundary_slices_last)]
-                    
-                    # Add to divergence
-                    divergence += div_term
-                else:
-                    logger.warning(f"Grid dimension {i} has too few points for derivative calculation")
-            except Exception as fallback_error:
-                logger.error(f"Fallback derivative method also failed: {fallback_error}")
-                # If all else fails, just skip this component's contribution
-                pass
-    
-    # Divide by √|g|, avoiding division by zero
-    g_det_sqrt_safe = np.maximum(g_det_sqrt, 1e-10)
-    divergence /= g_det_sqrt_safe
-    
+        det = np.linalg.det(metric)
+        det = np.maximum(det, 1e-10)
+        sqrtg = np.sqrt(det)
+
+    # Weighted vector: √|g| * V^i
+    W = sqrtg[..., None] * V  # shape (..., n)
+
+    # Compute all partial derivatives ∂_i W^i
+    # gradient returns a list of length n, each shape (..., n)
+    partials = np.gradient(W, *grid, axis=tuple(range(W.ndim - 1)), edge_order=2)
+
+    # Sum diagonal terms: ∑_i ∂_i W^i
+    div_num = sum(partials[i][..., i] for i in range(n))
+
+    # Final divergence
+    divergence = div_num / sqrtg
     return divergence
 
-def evaluate_curl(vector_field: List[np.ndarray], metric: np.ndarray, grid: List[np.ndarray], 
-                 christoffel: Optional[np.ndarray] = None, is_contravariant: bool = True) -> List[np.ndarray]:
-    """
-    Compute the curl of a vector field numerically (3D only).
-    
-    Args:
-        vector_field: List of 3 arrays for vector components
-        metric: Array of metric values at each point
-        grid: List of arrays containing the coordinate values along each axis
-        christoffel: Optional pre-computed Christoffel symbols
-        is_contravariant: Whether the vector field has contravariant components
-        
-    Returns:
-        List of 3 arrays for curl components (contravariant)
-    """
-    n = len(grid)
-    
-    if n != 3:
-        raise ValueError("Curl operator is only defined in 3D space")
-    
-    grid_shape = vector_field[0].shape
-    
-    # Convert to covariant components if needed
-    vector_covariant = [np.zeros(grid_shape) for _ in range(3)]
-    
-    if is_contravariant:
-        # Lower indices: A_i = g_{ij} * V^j
-        if metric.ndim == 2:  # constant metric
-            for i in range(3):
-                for j in range(3):
-                    vector_covariant[i] += metric[i, j] * vector_field[j]
-        else:  # position-dependent metric
-            for i in range(3):
-                for j in range(3):
-                    vector_covariant[i] += metric[..., i, j] * vector_field[j]
-    else:
-        vector_covariant = vector_field.copy()
-    
-    # Compute covariant derivatives of the vector
-    # ∇_j A_k = ∂_j A_k - Γ^m_{jk} A_m
-    
-    # First compute partial derivatives
-    partials = [[compute_partial_derivative(vector_covariant[k], grid, j) 
-                 for k in range(3)] for j in range(3)]
-    
-    # Compute Christoffel symbols if not provided
-    if christoffel is None:
-        if metric.ndim == 2:  # constant metric
-            # For constant metric, Christoffel symbols are zero if it's Cartesian
-            # Otherwise, they need to be computed
-            if np.allclose(metric, np.eye(3)):
-                christoffel = np.zeros(grid_shape + (3, 3, 3))
-            else:
-                # Create metric functions for constant metric
-                def make_metric_func(i, j, metric_val):
-                    def metric_func(point):
-                        return metric_val[i, j]
-                    return metric_func
-                
-                metric_funcs = [[make_metric_func(i, j, metric) for j in range(3)] for i in range(3)]
-                christoffel = compute_christoffel_on_grid(metric_funcs, grid)
-                
-        else:  # position-dependent metric
-            # Create metric functions from the array
-            def make_metric_func(i, j):
-                def metric_func(point):
-                    # Find the closest grid point
-                    indices = []
-                    for d in range(3):
-                        idx = np.abs(grid[d] - point[d]).argmin()
-                        indices.append(idx)
-                    return metric[tuple(indices)][i, j]
-                return metric_func
-            
-            metric_funcs = [[make_metric_func(i, j) for j in range(3)] for i in range(3)]
-            christoffel = compute_christoffel_on_grid(metric_funcs, grid)
-    
-    # Compute covariant derivatives
-    cov_derivs = np.zeros(grid_shape + (3, 3))  # [x,y,z,...][j][k]
-    
-    # Iterate over all grid points
-    for idx in np.ndindex(*grid_shape):
-        for j in range(3):
-            for k in range(3):
-                cov_derivs[idx][j][k] = partials[j][k][idx]
-                
-                # Subtract Christoffel terms
-                for m in range(3):
-                    if christoffel.ndim == 3 + 3:  # constant Christoffel
-                        cov_derivs[idx][j][k] -= christoffel[m, j, k] * vector_covariant[m][idx]
-                    else:  # position-dependent Christoffel
-                        cov_derivs[idx][j][k] -= christoffel[idx][m][j][k] * vector_covariant[m][idx]
-    
-    # Compute metric determinant for the Levi-Civita tensor
-    g_det = np.zeros(grid_shape)
-    
-    if metric.ndim == 2:  # constant metric
-        g_det.fill(np.linalg.det(metric))
-    else:  # position-dependent metric
-        for idx in np.ndindex(*grid_shape):
-            g_det[idx] = np.linalg.det(metric[idx])
-    
-    # Ensure determinant is not too close to zero
-    g_det = np.maximum(g_det, 1e-10)
-    g_det_sqrt = np.sqrt(np.abs(g_det))
-    
-    # Compute curl using the formula:
-    # (∇×V)^i = (1/√|g|) * ε^{ijk} * ∇_j A_k
-    # where ε^{ijk} is the Levi-Civita symbol
-    curl = [np.zeros(grid_shape) for _ in range(3)]
-    
-    # Define the Levi-Civita tensor in 3D
-    def levi_civita(i, j, k):
-        if (i, j, k) in [(0, 1, 2), (1, 2, 0), (2, 0, 1)]:
-            return 1
-        elif (i, j, k) in [(0, 2, 1), (2, 1, 0), (1, 0, 2)]:
-            return -1
-        else:
-            return 0
-    
-    for idx in np.ndindex(*grid_shape):
-        for i in range(3):
-            for j in range(3):
-                for k in range(3):
-                    curl[i][idx] += levi_civita(i, j, k) * cov_derivs[idx][j][k] / g_det_sqrt[idx]
-    
-    return curl
 
-def evaluate_laplacian(scalar_field: np.ndarray, metric: np.ndarray, metric_inverse: np.ndarray, 
-                      grid: List[np.ndarray]) -> np.ndarray:
+def evaluate_curl(vector_field: List[np.ndarray],
+                  metric: np.ndarray,
+                  grid: List[np.ndarray],
+                  christoffel: Optional[np.ndarray] = None,
+                  is_contravariant: bool = True) -> List[np.ndarray]:
     """
-    Compute the Laplacian of a scalar field numerically.
-    
+    Compute the curl of a 3D vector field on a curvilinear grid:
+        (curl V)^i = (1/√|g|) ε^{ijk} (∇_j A_k)
+    where A_k = g_{km} V^m and ∇_j A_k = ∂_j A_k - Γ^m_{jk} A_m.
+    """
+    # ==== 1) Stack components and handle index positions ====  
+    n = 3
+    V = np.stack(vector_field, axis=-1)  # shape (...,3)
+
+    # Lower indices if needed
+    if is_contravariant:
+        # metric: [...,i,j] or (i,j)
+        if metric.ndim == 2:
+            A = np.einsum('ij,...j->...i', metric, V)
+        else:
+            A = np.einsum('...ij,...j->...i', metric, V)
+    else:
+        A = V.copy()
+
+    # ==== 2) Compute covariant derivatives ∂_j A_k via one gradient call ====  
+    # A has shape grid_shape+(3)
+    axes = tuple(range(len(grid)))  # spatial axes
+    derivs = np.gradient(A, *grid, axis=axes, edge_order=2)
+    # derivs[j] has shape grid_shape+(3) giving ∂_j A_k
+    D = np.stack(derivs, axis=-2)  # shape grid_shape+(3,3) with D[...,j,k]
+
+    # ==== 3) Subtract Christoffel terms: ∇_j A_k = D_jk - Γ^m_{jk} A_m ====  
+    if christoffel is None:
+        # Assume christoffel zeros if not provided
+        cov_derivs = D
+    else:
+        # Γ shape: grid_shape+(m,j,k)
+        cov_de = np.einsum('...mjk,...m->...jk', christoffel, A)
+        cov_derivs = D - cov_de  # shape grid_shape+(3,3)
+
+    # ==== 4) Compute √|g| ====  
+    if metric.ndim == 2:
+        det = np.linalg.det(metric)
+        sqrtg = np.sqrt(max(det, 1e-10))
+    else:
+        det = np.linalg.det(metric)
+        det = np.maximum(det, 1e-10)
+        sqrtg = np.sqrt(det)
+
+    # ==== 5) Contract with Levi-Civita: (curl V)^i = 1/√g ε^{ijk} (∇_j A_k) ====  
+    # Define ε^{ijk}
+    eps = np.zeros((3,3,3), dtype=int)
+    eps[0,1,2] = eps[1,2,0] = eps[2,0,1] = 1
+    eps[0,2,1] = eps[2,1,0] = eps[1,0,2] = -1
+
+    # Contract: result[...,i] = ε^{i j k} cov_derivs[...,j,k]
+    curl = np.einsum('ijk,...jk->...i', eps, cov_derivs) / sqrtg[..., None]
+
+    # ==== 6) Return as list of components ====  
+    return [curl[..., i] for i in range(3)]
+
+def evaluate_laplacian(scalar_field: np.ndarray,
+                       metric: np.ndarray,
+                       metric_inverse: Union[np.ndarray, List[np.ndarray]],
+                       grid: List[np.ndarray]) -> np.ndarray:
+    """
+    Compute the Laplacian of a scalar field on a curvilinear grid:
+        ∇² f = (1/√|g|) ∂_i (√|g| g^{ij} ∂_j f)
+
+    Fully vectorized using NumPy.
+
     Args:
-        scalar_field: Array of scalar field values
-        metric: Array of metric values at each point
-        metric_inverse: Array of inverse metric values
-        grid: List of arrays containing the coordinate values along each axis
-        
+        scalar_field: array shape grid_shape
+        metric: constant (n,n) or array shape grid_shape+(n,n)
+        metric_inverse: constant (n,n) or array shape grid_shape+(n,n)
+        grid: list of coordinate arrays
+
     Returns:
-        Array of Laplacian values
+        Array of Laplacian values shape grid_shape
     """
-    import warnings
     n = len(grid)
-    grid_shape = scalar_field.shape
-    
-    # Compute metric determinant
-    g_det = np.zeros(grid_shape)
-    
-    if metric.ndim == 2:  # constant metric
-        try:
-            det = np.linalg.det(metric)
-            if abs(det) < 1e-10:
-                warnings.warn(f"Singular constant metric detected (det={det}). Using 1e-10 instead.")
-                g_det.fill(1e-10)
-            else:
-                g_det.fill(det)
-        except Exception as e:
-            warnings.warn(f"Error computing determinant of constant metric: {e}")
-            g_det.fill(1e-10)
-    else:  # position-dependent metric
-        for idx in np.ndindex(*grid_shape):
-            try:
-                det = np.linalg.det(metric[idx])
-                if abs(det) < 1e-10:
-                    if not np.isclose(abs(det), 0):  # Only warn if not exactly zero
-                        warnings.warn(f"Small determinant at grid point {idx}: {det}. Using 1e-10 instead.")
-                    g_det[idx] = 1e-10
-                else:
-                    g_det[idx] = det
-            except Exception as e:
-                warnings.warn(f"Error computing determinant at grid point {idx}: {e}")
-                g_det[idx] = 1e-10
-    
-    # Ensure determinant is not too close to zero
-    g_det = np.maximum(g_det, 1e-10)
-    g_det_sqrt = np.sqrt(np.abs(g_det))
-    
-    # Compute Laplacian using the formula:
-    # ∇²f = (1/√|g|) ∂_i(√|g| g^{ij} ∂_j f)
-    
-    # First compute partial derivatives of f
-    partial_f = [compute_partial_derivative(scalar_field, grid, j) for j in range(n)]
-    
-    # Compute g^{ij} ∂_j f for each i
-    weighted_derivs = [np.zeros(grid_shape) for _ in range(n)]
-    
-    for i in range(n):
-        for j in range(n):
-            if metric_inverse.ndim == 2:  # constant metric
-                weighted_derivs[i] += metric_inverse[i, j] * partial_f[j]
-            else:  # position-dependent metric
-                weighted_derivs[i] += metric_inverse[..., i, j] * partial_f[j]
-    
-    # Multiply by √|g|
-    for i in range(n):
-        weighted_derivs[i] *= g_det_sqrt
-    
-    # Take derivatives of these weighted terms
-    div_terms = [compute_partial_derivative(weighted_derivs[i], grid, i) for i in range(n)]
-    
-    # Sum and divide by √|g|
-    laplacian = np.zeros(grid_shape)
-    for i in range(n):
-        laplacian += div_terms[i]
-    
-    # Divide by √|g|, avoiding division by zero
-    g_det_sqrt_safe = np.maximum(g_det_sqrt, 1e-10)
-    laplacian /= g_det_sqrt_safe
-    
+    # 1) Compute partial derivatives ∂_j f
+    partials = np.gradient(scalar_field, *grid,
+                           axis=tuple(range(scalar_field.ndim)),
+                           edge_order=2)
+    # Stack into (..., n)
+    P = np.stack(partials, axis=-1)
+
+    # 2) g^{ij} ∂_j f for each i
+    if metric_inverse.ndim == 2:
+        G = np.einsum('ij,...j->...i', metric_inverse, P)
+    else:
+        G = np.einsum('...ij,...j->...i', metric_inverse, P)
+
+    # 3) Compute √|g|
+    if metric.ndim == 2:
+        det = np.linalg.det(metric)
+        sqrtg = np.sqrt(max(det, 1e-10))
+    else:
+        det = np.linalg.det(metric)
+        det = np.maximum(det, 1e-10)
+        sqrtg = np.sqrt(det)
+
+    # 4) Weighted vector: √|g| * G^i
+    W = sqrtg[..., None] * G  # shape (..., n)
+
+    # 5) Divergence ∂_i W^i via single gradient call
+    partials_W = np.gradient(W, *grid,
+                             axis=tuple(range(W.ndim - 1)),
+                             edge_order=2)
+    # Sum diagonal terms
+    lap_num = sum(partials_W[i][..., i] for i in range(n))
+
+    # 6) Final Laplacian
+    laplacian = lap_num / sqrtg
     return laplacian
 
-def evaluate_dalembert(scalar_field: np.ndarray, metric: np.ndarray, metric_inverse: np.ndarray, 
-                      grid: List[np.ndarray]) -> np.ndarray:
+def evaluate_dalembert(scalar_field: np.ndarray,
+                       metric: np.ndarray,
+                       metric_inverse: np.ndarray,
+                       grid: List[np.ndarray]) -> np.ndarray:
     """
-    Compute the d'Alembertian (wave operator) of a scalar field numerically.
-    
-    Args:
-        scalar_field: Array of scalar field values
-        metric: Array of metric values at each point
-        metric_inverse: Array of inverse metric values
-        grid: List of arrays containing the coordinate values along each axis
-        
-    Returns:
-        Array of d'Alembertian values
+    Alias for the 4D Laplacian (wave operator).
     """
-    n = len(grid)
-    
-    if n != 4:
-        raise ValueError("d'Alembertian operator is defined for 4D spacetime")
-    
-    # The d'Alembertian is the Laplacian generalized to 4D spacetime
+    if len(grid) != 4:
+        raise ValueError("d'Alembertian is defined only in 4D spacetime")
     return evaluate_laplacian(scalar_field, metric, metric_inverse, grid)
 
-def apply_boundary_condition(field: np.ndarray, grid: List[np.ndarray], 
-                            boundary_type: str, boundary_values: Dict[str, Any] = None) -> np.ndarray:
-    """
-    Apply boundary conditions to a field on a grid.
-    
-    Args:
-        field: Array of field values
-        grid: List of arrays containing the coordinate values along each axis
-        boundary_type: Type of boundary condition ('dirichlet', 'neumann', 'periodic')
-        boundary_values: Boundary values for Dirichlet or derivative values for Neumann
-        
-    Returns:
-        Updated field array with boundary conditions applied
-    """
-    n = len(grid)
-    grid_shape = field.shape
-    result = field.copy()
-    
-    # Process each boundary (two per dimension)
-    for dim in range(n):
-        # Get the appropriate slices for the boundaries in this dimension
-        lower_slice = [slice(None)] * n
-        upper_slice = [slice(None)] * n
-        
-        lower_slice[dim] = 0
-        upper_slice[dim] = -1
-        
-        # Apply appropriate boundary condition
-        if boundary_type.lower() == 'dirichlet':
-            # Set fixed values at the boundaries
-            if boundary_values is not None:
-                if f'dim{dim}_lower' in boundary_values:
-                    result[tuple(lower_slice)] = boundary_values[f'dim{dim}_lower']
-                if f'dim{dim}_upper' in boundary_values:
-                    result[tuple(upper_slice)] = boundary_values[f'dim{dim}_upper']
-        
-        elif boundary_type.lower() == 'neumann':
-            # Set fixed derivatives at the boundaries
-            # For simplicity, use first-order forward/backward differences
-            dx = grid[dim][1] - grid[dim][0]
-            
-            one_in_slice = [slice(None)] * n
-            one_in_slice[dim] = 1
-            
-            last_but_one_slice = [slice(None)] * n
-            last_but_one_slice[dim] = -2
-            
-            if boundary_values is not None:
-                if f'dim{dim}_lower' in boundary_values:
-                    # f[0] = f[1] - dx * derivative
-                    result[tuple(lower_slice)] = result[tuple(one_in_slice)] - dx * boundary_values[f'dim{dim}_lower']
-                
-                if f'dim{dim}_upper' in boundary_values:
-                    # f[-1] = f[-2] + dx * derivative
-                    result[tuple(upper_slice)] = result[tuple(last_but_one_slice)] + dx * boundary_values[f'dim{dim}_upper']
-        
-        elif boundary_type.lower() == 'periodic':
-            # Copy values from opposite boundaries
-            result[tuple(lower_slice)] = result[tuple(upper_slice)]
-            
-            second_to_last_slice = [slice(None)] * n
-            second_to_last_slice[dim] = -2
-            
-            first_slice = [slice(None)] * n
-            first_slice[dim] = 1
-            
-            result[tuple(upper_slice)] = result[tuple(first_slice)]
-            
-            # Also update the second-to-last point for better derivative calculation
-            result[tuple(second_to_last_slice)] = result[tuple(lower_slice)]
-        
-        else:
-            raise ValueError(f"Unsupported boundary condition type: {boundary_type}")
-    
-    return result
 
-def interpolate_field(field: np.ndarray, grid: List[np.ndarray], point: List[float]) -> float:
+def apply_boundary_condition(field: np.ndarray,
+                             grid: List[np.ndarray],
+                             boundary_type: str,
+                             boundary_values: Dict[str, Any] = None) -> np.ndarray:
     """
-    Interpolate a field value at an arbitrary point within the grid.
-    
-    Args:
-        field: Array of field values
-        grid: List of arrays containing the coordinate values along each axis
-        point: List of coordinate values at which to interpolate
-        
-    Returns:
-        Interpolated field value at the specified point
+    Apply Dirichlet, Neumann, or periodic BCs with minimal overhead.
+    """
+    out = field.copy()
+    ndim = out.ndim
+    btype = boundary_type.lower()
+
+    if btype == 'dirichlet' and boundary_values:
+        for d in range(ndim):
+            low = [slice(None)]*ndim; low[d] = 0
+            high= [slice(None)]*ndim; high[d]= -1
+            lk, uk = f'dim{d}_lower', f'dim{d}_upper'
+            if lk in boundary_values:
+                out[tuple(low)]  = boundary_values[lk]
+            if uk in boundary_values:
+                out[tuple(high)] = boundary_values[uk]
+
+    elif btype == 'neumann' and boundary_values:
+        for d in range(ndim):
+            dx = grid[d][1] - grid[d][0]
+            idx0 = [slice(None)]*ndim; idx0[d] = 0
+            idx1 = [slice(None)]*ndim; idx1[d] = 1
+            idxm2= [slice(None)]*ndim; idxm2[d]= -2
+            idxm1= [slice(None)]*ndim; idxm1[d]= -1
+            lk, uk = f'dim{d}_lower', f'dim{d}_upper'
+            if lk in boundary_values:
+                out[tuple(idx0)] = out[tuple(idx1)] - dx * boundary_values[lk]
+            if uk in boundary_values:
+                out[tuple(idxm1)]= out[tuple(idxm2)] + dx * boundary_values[uk]
+
+    elif btype == 'periodic':
+        # wrap via pad+slice
+        pads = [(1,1)]*ndim
+        out = np.pad(out, pads, mode='wrap')
+        slices = tuple(slice(1,-1) for _ in range(ndim))
+        out = out[slices]
+
+    else:
+        raise ValueError(f"Unsupported or incomplete BC: {boundary_type}")
+
+    return out
+
+
+def interpolate_field(field: np.ndarray,
+                      grid: List[np.ndarray],
+                      point: List[float]) -> float:
+    """
+    Pure–NumPy multilinear interpolation at one point.
     """
     n = len(grid)
-    
-    # Find the indices of the surrounding grid points
-    indices = []
-    weights = []
-    
-    for i in range(n):
-        # Find the index of the closest grid point below the target
-        idx = np.searchsorted(grid[i], point[i]) - 1
-        idx = max(0, min(idx, len(grid[i]) - 2))  # Ensure within bounds
-        
-        # Calculate the fractional distance between grid points
-        x0 = grid[i][idx]
-        x1 = grid[i][idx + 1]
-        w = (point[i] - x0) / (x1 - x0)  # Weight for linear interpolation
-        
-        indices.append((idx, idx + 1))
-        weights.append((1 - w, w))
-    
-    # Perform multilinear interpolation
+    # 1) locate bracketing indices and weights
+    idx0 = [0]*n
+    w    = [0.0]*n
+    for d in range(n):
+        xi = grid[d]
+        p  = point[d]
+        i  = np.searchsorted(xi, p) - 1
+        i  = min(max(i, 0), len(xi)-2)
+        idx0[d] = i
+        x0, x1 = xi[i], xi[i+1]
+        w[d]    = (p - x0) / (x1 - x0)
+
+    # 2) sum over 2^n corners
     result = 0.0
-    
-    # Iterate over all combinations of surrounding grid points
-    for idx_tuple in np.ndindex(*[(2,)] * n):
-        # Compute the weight for this combination
-        weight_product = 1.0
-        for dim, (idx_choice, weight_choice) in enumerate(zip(idx_tuple, weights)):
-            weight_product *= weight_choice[idx_choice]
-        
-        # Compute the field value at this grid point
-        grid_indices = [indices[dim][idx_choice] for dim, idx_choice in enumerate(idx_tuple)]
-        field_value = field[tuple(grid_indices)]
-        
-        # Add weighted contribution
-        result += weight_product * field_value
-    
-    return result
+    for corner in range(1 << n):
+        weight = 1.0
+        loc    = [0]*n
+        for d in range(n):
+            bit = (corner >> d) & 1
+            weight *= w[d] if bit else (1 - w[d])
+            loc[d]   = idx0[d] + bit
+        result += weight * field[tuple(loc)]
 
+    return result
 if __name__ == "__main__":
     print("Numerical Differential Operators - Demo\n")
     

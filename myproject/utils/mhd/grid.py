@@ -1,12 +1,3 @@
-"""
-Grid module for MHD simulations.
-
-This module provides functionality for creating and managing computational grids
-in various coordinate systems, with support for both symbolic and numerical operations.
-It handles coordinate transformations, metric calculations, and implements differential
-operators for MHD simulations.
-"""
-
 import numpy as np
 import sympy as sp
 from numba import njit
@@ -16,149 +7,45 @@ from typing import Dict, List, Tuple, Union, Callable, Optional
 # Setup logging
 logger = logging.getLogger(__name__)
 
-def create_grid(coord_ranges: Dict[str, Dict[str, float]], 
-                resolution: List[int], 
-                include_endpoints: bool = True) -> Tuple[Tuple[np.ndarray, ...], Dict[str, np.ndarray]]:
-    """
-    Create a computational grid for MHD simulations.
-    
-    Args:
-        coord_ranges: Dictionary mapping coordinate names to their min/max ranges
-                      e.g. {'x': {'min': 0, 'max': 1}, 'y': {'min': 0, 'max': 1}}
-        resolution: List of grid points in each dimension
-        include_endpoints: Whether to include the endpoints in the grid
-    
-    Returns:
-        Tuple containing:
-            - Tuple of 1D grid arrays for each coordinate (not meshgrid)
-            - Dictionary of grid spacing for each coordinate
-    """
-    # First create as dictionary for easier manipulation
-    grid_dict = {}
+def create_grid(coord_ranges: Dict[str, Dict[str, float]],
+                resolution: List[int],
+                include_endpoints: bool = True
+               ) -> Tuple[Tuple[np.ndarray, ...], Dict[str, float]]:
+    names = list(coord_ranges)
+    grids = [None] * len(names)
     spacing = {}
-    coord_names = []
-    
-    for i, (coord_name, range_info) in enumerate(coord_ranges.items()):
-        coord_names.append(coord_name)
-        min_val = range_info['min']
-        max_val = range_info['max']
-        
-        # Number of grid points in this dimension
-        n_points = resolution[i]
-        
-        # Create the grid for this coordinate
+    for i, name in enumerate(names):
+        mn = coord_ranges[name]['min']
+        mx = coord_ranges[name]['max']
+        N = resolution[i]
         if include_endpoints:
-            # Include both endpoints
-            coord_grid = np.linspace(min_val, max_val, n_points)
+            arr = np.linspace(mn, mx, N)
+            dx = (mx - mn) / (N - 1)
         else:
-            # Cell-centered grid (exclude endpoints)
-            dx = (max_val - min_val) / n_points
-            coord_grid = np.linspace(min_val + dx/2, max_val - dx/2, n_points)
+            dx = (mx - mn) / N
+            arr = np.linspace(mn, mx, N)
+        grids[i] = arr
+        spacing[name] = dx
+    spacing['_coord_names'] = names
+    return tuple(grids), spacing
         
-        # Store the grid and spacing
-        grid_dict[coord_name] = coord_grid
-        spacing[coord_name] = (max_val - min_val) / (n_points - 1 if include_endpoints else n_points)
-    
-    # Store the 1D arrays in a tuple (in the same order as coord_names)
-    grid_tuple = tuple(grid_dict[name] for name in coord_names)
-    
-    # Store the coordinate names for reference
-    spacing['_coord_names'] = coord_names
-    
-    return grid_tuple, spacing
 
-def create_staggered_grid(grid: Tuple[np.ndarray, ...], 
-                          spacing: Dict[str, float]) -> Tuple[Tuple[np.ndarray, ...], ...]:
-    """
-    Create a staggered grid for constrained transport MHD.
-    
-    This creates face-centered grids needed for maintaining div(B) = 0.
-    
-    Args:
-        grid: Tuple of grid arrays (either 1D arrays or meshgrids)
-        spacing: Dictionary of grid spacing for each coordinate
-    
-    Returns:
-        Tuple of face-centered grids for each dimension
-    """
-    dimension = len(grid)
-    coord_names = spacing.get('_coord_names', [f'x{i}' for i in range(dimension)])
-    
-    # Check if the input is already a meshgrid (2D or 3D arrays) or 1D arrays
-    is_meshgrid = len(grid[0].shape) > 1
-    
-    if is_meshgrid:
-        # If meshgrid, use the shape directly
-        grid_shape = grid[0].shape
-    else:
-        # If 1D arrays, use their length for shape
-        grid_shape = tuple(len(grid[i]) for i in range(dimension))
-    
-    # Initialize staggered grids
-    staggered_grids = []
-    
-    for i in range(dimension):
-        # Create face-centered grids for this coordinate
-        face_grids = []
-        
-        for j in range(dimension):
-            if i == j:
-                # Face centers for this coordinate
-                if is_meshgrid:
-                    # For meshgrid, directly use the grid arrays
-                    face_centers = np.copy(grid[i])
-                    
-                    # Shift grid half a cell (except at boundaries where we extrapolate)
-                    slice_idx = [slice(None)] * dimension
-                    slice_idx[i] = slice(1, None)
-                    shift_slice = tuple(slice_idx)
-                    
-                    slice_idx = [slice(None)] * dimension
-                    slice_idx[i] = slice(0, -1)
-                    orig_slice = tuple(slice_idx)
-                    
-                    face_centers[orig_slice] = 0.5 * (face_centers[orig_slice] + face_centers[shift_slice])
-                    
-                    # Handle boundary (extrapolate)
-                    # Get the correct slice for the boundary
-                    slice_idx = [slice(None)] * dimension
-                    slice_idx[i] = -1
-                    boundary_slice = tuple(slice_idx)
-                    
-                    # Get the previous slice for extrapolation
-                    slice_idx[i] = -2
-                    prev_slice = tuple(slice_idx)
-                    
-                    # Extrapolate the boundary
-                    face_centers[boundary_slice] = 2 * face_centers[boundary_slice] - face_centers[prev_slice]
-                else:
-                    # For 1D arrays, use the original approach
-                    face_centers = np.copy(grid[i])
-                    
-                    # Shift grid half a cell (except at boundaries where we extrapolate)
-                    face_centers = 0.5 * (face_centers + np.roll(face_centers, -1, axis=i))
-                    
-                    # Handle boundary (don't wrap around but extrapolate)
-                    # Get the correct slice for the boundary
-                    slice_idx = [slice(None)] * len(grid_shape)
-                    slice_idx[i] = -1
-                    boundary_slice = tuple(slice_idx)
-                    
-                    # Get the previous slice for extrapolation
-                    slice_idx[i] = -2
-                    prev_slice = tuple(slice_idx)
-                    
-                    # Extrapolate the boundary
-                    face_centers[boundary_slice] = 2 * face_centers[boundary_slice] - face_centers[prev_slice]
-                
-                face_grids.append(face_centers)
-            else:
-                # Keep the same grid for other coordinates
-                face_grids.append(grid[j])
-        
-        staggered_grids.append(tuple(face_grids))
-    
-    return tuple(staggered_grids)
+def create_staggered_grid(grid, spacing):
+    dims = len(grid)
+    axes = [np.asarray(g).ravel() for g in grid]
+
+    centers = []
+    for i, ax in enumerate(axes):
+        c = (ax + np.roll(ax, -1)) * 0.5
+        c[-1] = 2*c[-1] - c[-2]
+        centers.append(c)
+
+    out = []
+    for i in range(dims):
+        face_mesh = np.meshgrid(*[centers[j] if j == i else axes[j] for j in range(dims)],
+        indexing='ij')
+        out.append(face_mesh)
+    return tuple(out)
 
 def metric_from_transformation(
     transform_map: List[sp.Expr],
@@ -298,89 +185,50 @@ def symbolic_divergence(
 def numerical_gradient(
     scalar_field: np.ndarray,
     grid: Tuple[np.ndarray, ...],
-    spacing: Dict[str, float],
+    coord_names: List[str],
+    spacing_values: List[float],
     metric_inverse: np.ndarray
 ) -> List[np.ndarray]:
     """
-    Compute the numerical gradient of a scalar field on a grid.
+    Fast numerical gradient via vectorized ops:
+      1) ∂_j f with np.gradient
+      2) ∇^i f = g^{ij} ∂_j f with einsum/tensordot
     
     Args:
         scalar_field: Array of scalar field values
         grid: Tuple of grid arrays
-        spacing: Dictionary of grid spacing
-        metric_inverse: Inverse metric tensor
-    
+        coord_names: List of coordinate names
+        spacing_values: List of spacing values corresponding to each coordinate
+        metric_inverse: Inverse of the metric tensor
+        
     Returns:
-        List of arrays for the gradient components
+        List of arrays for gradient components
     """
-    dimension = len(grid)
-    shape = scalar_field.shape
-    coord_names = spacing.get('_coord_names', [f'x{i}' for i in range(dimension)])
-    
-    # Initialize gradient components
-    gradient = [np.zeros(shape) for _ in range(dimension)]
-    
-    # Compute covariant derivatives (simple central differences)
-    partial_derivatives = []
-    for i in range(dimension):
-        coord_name = coord_names[i]
-        dx = spacing[coord_name]
-        # Use central differences for interior points
-        partial = np.zeros_like(scalar_field)
-        
-        # Create slices for forward and backward differences
-        slices_forward = [slice(None)] * dimension
-        slices_backward = [slice(None)] * dimension
-        slices_center = [slice(None)] * dimension
-        
-        # Interior points (central difference)
-        slices_forward[i] = slice(2, None)
-        slices_backward[i] = slice(0, -2)
-        slices_center[i] = slice(1, -1)
-        
-        partial[tuple(slices_center)] = (scalar_field[tuple(slices_forward)] - 
-                                        scalar_field[tuple(slices_backward)]) / (2 * dx)
-        
-        # Forward difference for the first point
-        slices_forward[i] = slice(1, 3)
-        slices_center[i] = 0
-        
-        if shape[i] > 2:
-            partial[tuple(slices_center)] = (-1.5 * scalar_field[tuple(slices_center)] + 
-                                           2.0 * scalar_field[tuple(slices_forward)][..., 0] - 
-                                           0.5 * scalar_field[tuple(slices_forward)][..., 1]) / dx
-        else:
-            # Fallback for small grids
-            partial[tuple(slices_center)] = (scalar_field[tuple(slices_forward)][..., 0] - 
-                                           scalar_field[tuple(slices_center)]) / dx
-        
-        # Backward difference for the last point
-        slices_backward[i] = slice(-3, -1)
-        slices_center[i] = -1
-        
-        if shape[i] > 2:
-            partial[tuple(slices_center)] = (1.5 * scalar_field[tuple(slices_center)] - 
-                                           2.0 * scalar_field[tuple(slices_backward)][..., -1] + 
-                                           0.5 * scalar_field[tuple(slices_backward)][..., -2]) / dx
-        else:
-            # Fallback for small grids
-            partial[tuple(slices_center)] = (scalar_field[tuple(slices_center)] - 
-                                           scalar_field[tuple(slices_backward)][..., -1]) / dx
-        
-        partial_derivatives.append(partial)
-    
-    # Combine with inverse metric to get contravariant components
-    for i in range(dimension):
-        for j in range(dimension):
-            gradient[i] += metric_inverse[i, j] * partial_derivatives[j]
-    
-    return gradient
+    # 1) compute all partials d_j f at once
+    partials = np.gradient(scalar_field, *grid, edge_order=2)    
+    # stack into array shape (..., dim)
+    P = np.stack(partials, axis=-1)                               
+
+    # 2) contract with metric_inverse to raise the index
+    inv = metric_inverse
+    if inv.ndim == 2:
+        # constant metric case: use tensordot for a speed boost
+        # result[..., i] = sum_j P[..., j] * inv[j, i]
+        grad = np.tensordot(P, inv, axes=([P.ndim-1], [0]))      
+    else:
+        # position‑dependent metric: einsum over the last two axes
+        grad = np.einsum('...j,...ji->...i', P, inv)            
+
+    # split back into list of length dim
+    dim = P.shape[-1]
+    return [grad[..., i] for i in range(dim)]
 
 @njit
 def numerical_divergence(
     vector_field: List[np.ndarray],
     grid: Tuple[np.ndarray, ...],
-    spacing: Dict[str, float],
+    coord_names: List[str],
+    spacing_values: List[float],
     metric_determinant: np.ndarray
 ) -> np.ndarray:
     """
@@ -389,7 +237,8 @@ def numerical_divergence(
     Args:
         vector_field: List of arrays for vector field components
         grid: Tuple of grid arrays
-        spacing: Dictionary of grid spacing
+        coord_names: List of coordinate names
+        spacing_values: List of spacing values corresponding to each coordinate
         metric_determinant: Determinant of the metric tensor
     
     Returns:
@@ -397,7 +246,6 @@ def numerical_divergence(
     """
     dimension = len(grid)
     shape = vector_field[0].shape
-    coord_names = spacing.get('_coord_names', [f'x{i}' for i in range(dimension)])
     
     # Initialize divergence array
     divergence = np.zeros(shape)
@@ -406,52 +254,88 @@ def numerical_divergence(
     sqrt_g = np.sqrt(metric_determinant)
     
     for i in range(dimension):
-        coord_name = coord_names[i]
-        dx = spacing[coord_name]
+        dx = spacing_values[i]
         # Compute v_scaled = sqrt(g) * v^i
         v_scaled = sqrt_g * vector_field[i]
         
         # Use central differences for interior points
         div_term = np.zeros_like(divergence)
         
-        # Create slices for forward and backward differences
-        slices_forward = [slice(None)] * dimension
-        slices_backward = [slice(None)] * dimension
-        slices_center = [slice(None)] * dimension
+        # For 1D
+        if dimension == 1:
+            # Interior points (central difference)
+            div_term[1:-1] = (v_scaled[2:] - v_scaled[:-2]) / (2 * dx)
+            
+            # Forward difference for the first point
+            if shape[0] > 2:
+                div_term[0] = (-1.5 * v_scaled[0] + 2.0 * v_scaled[1] - 0.5 * v_scaled[2]) / dx
+            else:
+                div_term[0] = (v_scaled[1] - v_scaled[0]) / dx
+            
+            # Backward difference for the last point
+            if shape[0] > 2:
+                div_term[-1] = (1.5 * v_scaled[-1] - 2.0 * v_scaled[-2] + 0.5 * v_scaled[-3]) / dx
+            else:
+                div_term[-1] = (v_scaled[-1] - v_scaled[-2]) / dx
         
-        # Interior points (central difference)
-        slices_forward[i] = slice(2, None)
-        slices_backward[i] = slice(0, -2)
-        slices_center[i] = slice(1, -1)
+        # For 2D
+        elif dimension == 2:
+            if i == 0:  # x-direction
+                # Interior points (central difference)
+                for j in range(shape[1]):
+                    div_term[1:-1, j] = (v_scaled[2:, j] - v_scaled[:-2, j]) / (2 * dx)
+                
+                # Forward difference for the first point
+                if shape[0] > 2:
+                    div_term[0, :] = (-1.5 * v_scaled[0, :] + 2.0 * v_scaled[1, :] - 0.5 * v_scaled[2, :]) / dx
+                else:
+                    div_term[0, :] = (v_scaled[1, :] - v_scaled[0, :]) / dx
+                
+                # Backward difference for the last point
+                if shape[0] > 2:
+                    div_term[-1, :] = (1.5 * v_scaled[-1, :] - 2.0 * v_scaled[-2, :] + 0.5 * v_scaled[-3, :]) / dx
+                else:
+                    div_term[-1, :] = (v_scaled[-1, :] - v_scaled[-2, :]) / dx
+            
+            elif i == 1:  # y-direction
+                # Interior points (central difference)
+                for j in range(shape[0]):
+                    div_term[j, 1:-1] = (v_scaled[j, 2:] - v_scaled[j, :-2]) / (2 * dx)
+                
+                # Forward difference for the first point
+                if shape[1] > 2:
+                    div_term[:, 0] = (-1.5 * v_scaled[:, 0] + 2.0 * v_scaled[:, 1] - 0.5 * v_scaled[:, 2]) / dx
+                else:
+                    div_term[:, 0] = (v_scaled[:, 1] - v_scaled[:, 0]) / dx
+                
+                # Backward difference for the last point
+                if shape[1] > 2:
+                    div_term[:, -1] = (1.5 * v_scaled[:, -1] - 2.0 * v_scaled[:, -2] + 0.5 * v_scaled[:, -3]) / dx
+                else:
+                    div_term[:, -1] = (v_scaled[:, -1] - v_scaled[:, -2]) / dx
         
-        div_term[tuple(slices_center)] = (v_scaled[tuple(slices_forward)] - 
-                                         v_scaled[tuple(slices_backward)]) / (2 * dx)
-        
-        # Forward difference for the first point
-        slices_forward[i] = slice(1, 3)
-        slices_center[i] = 0
-        
-        if shape[i] > 2:
-            div_term[tuple(slices_center)] = (-1.5 * v_scaled[tuple(slices_center)] + 
-                                            2.0 * v_scaled[tuple(slices_forward)][..., 0] - 
-                                            0.5 * v_scaled[tuple(slices_forward)][..., 1]) / dx
-        else:
-            # Fallback for small grids
-            div_term[tuple(slices_center)] = (v_scaled[tuple(slices_forward)][..., 0] - 
-                                            v_scaled[tuple(slices_center)]) / dx
-        
-        # Backward difference for the last point
-        slices_backward[i] = slice(-3, -1)
-        slices_center[i] = -1
-        
-        if shape[i] > 2:
-            div_term[tuple(slices_center)] = (1.5 * v_scaled[tuple(slices_center)] - 
-                                            2.0 * v_scaled[tuple(slices_backward)][..., -1] + 
-                                            0.5 * v_scaled[tuple(slices_backward)][..., -2]) / dx
-        else:
-            # Fallback for small grids
-            div_term[tuple(slices_center)] = (v_scaled[tuple(slices_center)] - 
-                                            v_scaled[tuple(slices_backward)][..., -1]) / dx
+        # For 3D (simplified implementation)
+        elif dimension == 3:
+            if i == 0:  # x-direction
+                # Interior points only (central difference)
+                for j in range(shape[1]):
+                    for k in range(shape[2]):
+                        if shape[0] > 2:
+                            div_term[1:-1, j, k] = (v_scaled[2:, j, k] - v_scaled[:-2, j, k]) / (2 * dx)
+            
+            elif i == 1:  # y-direction
+                # Interior points only (central difference)
+                for j in range(shape[0]):
+                    for k in range(shape[2]):
+                        if shape[1] > 2:
+                            div_term[j, 1:-1, k] = (v_scaled[j, 2:, k] - v_scaled[j, :-2, k]) / (2 * dx)
+            
+            elif i == 2:  # z-direction
+                # Interior points only (central difference)
+                for j in range(shape[0]):
+                    for k in range(shape[1]):
+                        if shape[2] > 2:
+                            div_term[j, k, 1:-1] = (v_scaled[j, k, 2:] - v_scaled[j, k, :-2]) / (2 * dx)
         
         divergence += div_term
     
@@ -464,7 +348,8 @@ def numerical_divergence(
 def numerical_curl_2d(
     vector_field: List[np.ndarray],
     grid: Tuple[np.ndarray, ...],
-    spacing: Dict[str, float]
+    coord_names: List[str],
+    spacing_values: List[float]
 ) -> np.ndarray:
     """
     Compute the curl of a 2D vector field (returns scalar).
@@ -472,7 +357,8 @@ def numerical_curl_2d(
     Args:
         vector_field: List of arrays for vector field components [vx, vy]
         grid: Tuple of grid arrays
-        spacing: Dictionary of grid spacing
+        coord_names: List of coordinate names
+        spacing_values: List of spacing values corresponding to each coordinate
     
     Returns:
         Array of curl values (vorticity)
@@ -480,39 +366,60 @@ def numerical_curl_2d(
     # Extract components and spacing
     vx = vector_field[0]
     vy = vector_field[1]
-    coord_names = spacing.get('_coord_names', ['x', 'y'])
-    dx = spacing[coord_names[0]]
-    dy = spacing[coord_names[1]]
+    dx = spacing_values[0]  # x-direction spacing
+    dy = spacing_values[1]  # y-direction spacing
     
     # Initialize curl array
     curl = np.zeros_like(vx)
     
     # Interior points (central differences)
-    curl[1:-1, 1:-1] = ((vy[2:, 1:-1] - vy[:-2, 1:-1]) / (2 * dx) - 
-                        (vx[1:-1, 2:] - vx[1:-1, :-2]) / (2 * dy))
+    for i in range(1, vx.shape[0]-1):
+        for j in range(1, vx.shape[1]-1):
+            curl[i, j] = ((vy[i+1, j] - vy[i-1, j]) / (2 * dx) - 
+                         (vx[i, j+1] - vx[i, j-1]) / (2 * dy))
     
     # Boundary points (one-sided differences)
-    # Left and right boundaries
-    curl[0, 1:-1] = ((vy[1, 1:-1] - vy[0, 1:-1]) / dx - 
-                     (vx[0, 2:] - vx[0, :-2]) / (2 * dy))
-    curl[-1, 1:-1] = ((vy[-1, 1:-1] - vy[-2, 1:-1]) / dx - 
-                      (vx[-1, 2:] - vx[-1, :-2]) / (2 * dy))
+    # Left boundary
+    if vx.shape[0] > 1:
+        for j in range(1, vx.shape[1]-1):
+            curl[0, j] = ((vy[1, j] - vy[0, j]) / dx - 
+                         (vx[0, j+1] - vx[0, j-1]) / (2 * dy))
     
-    # Top and bottom boundaries
-    curl[1:-1, 0] = ((vy[2:, 0] - vy[:-2, 0]) / (2 * dx) - 
-                     (vx[1:-1, 1] - vx[1:-1, 0]) / dy)
-    curl[1:-1, -1] = ((vy[2:, -1] - vy[:-2, -1]) / (2 * dx) - 
-                      (vx[1:-1, -1] - vx[1:-1, -2]) / dy)
+    # Right boundary
+    if vx.shape[0] > 1:
+        for j in range(1, vx.shape[1]-1):
+            curl[-1, j] = ((vy[-1, j] - vy[-2, j]) / dx - 
+                          (vx[-1, j+1] - vx[-1, j-1]) / (2 * dy))
+    
+    # Bottom boundary
+    if vx.shape[1] > 1:
+        for i in range(1, vx.shape[0]-1):
+            curl[i, 0] = ((vy[i+1, 0] - vy[i-1, 0]) / (2 * dx) - 
+                         (vx[i, 1] - vx[i, 0]) / dy)
+    
+    # Top boundary
+    if vx.shape[1] > 1:
+        for i in range(1, vx.shape[0]-1):
+            curl[i, -1] = ((vy[i+1, -1] - vy[i-1, -1]) / (2 * dx) - 
+                          (vx[i, -1] - vx[i, -2]) / dy)
     
     # Corner points
-    curl[0, 0] = ((vy[1, 0] - vy[0, 0]) / dx - 
-                  (vx[0, 1] - vx[0, 0]) / dy)
-    curl[0, -1] = ((vy[1, -1] - vy[0, -1]) / dx - 
-                   (vx[0, -1] - vx[0, -2]) / dy)
-    curl[-1, 0] = ((vy[-1, 0] - vy[-2, 0]) / dx - 
-                   (vx[-1, 1] - vx[-1, 0]) / dy)
-    curl[-1, -1] = ((vy[-1, -1] - vy[-2, -1]) / dx - 
-                    (vx[-1, -1] - vx[-1, -2]) / dy)
+    if vx.shape[0] > 1 and vx.shape[1] > 1:
+        # Bottom-left
+        curl[0, 0] = ((vy[1, 0] - vy[0, 0]) / dx - 
+                      (vx[0, 1] - vx[0, 0]) / dy)
+        
+        # Bottom-right
+        curl[-1, 0] = ((vy[-1, 0] - vy[-2, 0]) / dx - 
+                      (vx[-1, 1] - vx[-1, 0]) / dy)
+        
+        # Top-left
+        curl[0, -1] = ((vy[1, -1] - vy[0, -1]) / dx - 
+                      (vx[0, -1] - vx[0, -2]) / dy)
+        
+        # Top-right
+        curl[-1, -1] = ((vy[-1, -1] - vy[-2, -1]) / dx - 
+                       (vx[-1, -1] - vx[-1, -2]) / dy)
     
     return curl
 
@@ -520,7 +427,8 @@ def numerical_curl_2d(
 def numerical_curl_3d(
     vector_field: List[np.ndarray],
     grid: Tuple[np.ndarray, ...],
-    spacing: Dict[str, float]
+    coord_names: List[str],
+    spacing_values: List[float]
 ) -> List[np.ndarray]:
     """
     Compute the curl of a 3D vector field.
@@ -528,7 +436,8 @@ def numerical_curl_3d(
     Args:
         vector_field: List of arrays for vector field components [vx, vy, vz]
         grid: Tuple of grid arrays
-        spacing: Dictionary of grid spacing
+        coord_names: List of coordinate names
+        spacing_values: List of spacing values corresponding to each coordinate
     
     Returns:
         List of arrays for curl components [curl_x, curl_y, curl_z]
@@ -537,10 +446,9 @@ def numerical_curl_3d(
     vx = vector_field[0]
     vy = vector_field[1]
     vz = vector_field[2]
-    coord_names = spacing.get('_coord_names', ['x', 'y', 'z'])
-    dx = spacing[coord_names[0]]
-    dy = spacing[coord_names[1]]
-    dz = spacing[coord_names[2]]
+    dx = spacing_values[0]  # x-direction spacing
+    dy = spacing_values[1]  # y-direction spacing
+    dz = spacing_values[2]  # z-direction spacing
     
     # Initialize curl components
     curl_x = np.zeros_like(vx)

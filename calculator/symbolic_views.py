@@ -11,21 +11,72 @@ from myproject.utils.symbolic import oblicz_tensory, compute_einstein_tensor, co
 
 logger = logging.getLogger(__name__)
 
+def balance_parentheses(expr_str):
+    """
+    Check and balance parentheses in the expression string.
+    Returns the balanced expression string and a flag indicating if balancing was needed.
+    """
+    open_count = expr_str.count('(')
+    close_count = expr_str.count(')')
+    
+    if open_count == close_count:
+        return expr_str, False
+    
+    # We have unbalanced parentheses
+    if open_count > close_count:
+        # Add missing closing parentheses
+        return expr_str + ')' * (open_count - close_count), True
+    else:
+        # Add missing opening parentheses at the beginning
+        return '(' * (close_count - open_count) + expr_str, True
+
 def _fix_fn_expo(expr_str):
+    """Fix function exponentiation with complex expressions.
+    
+    For example: 
+    - sin(x)**2 -> (sin(x))**2
+    - a(t)**2 -> (a(t))**2
+    - (a + b*cos(theta))**2 -> (a + b*cos(theta))**2
+    - a**2*cosh(tau)**2 -> a**2*(cosh(tau))**2
     """
-    Fix function exponentiation syntax like "sin**2(theta)" to "sin(theta)**2".
+    # First, balance parentheses if needed
+    expr_str, was_balanced = balance_parentheses(expr_str)
+    if was_balanced:
+        logger.warning(f"Fixed unbalanced parentheses in expression: {expr_str}")
     
-    Uses regex to find patterns like "name**exponent(args)" and rewrites as "name(args)**exponent".
-    """
-    # Match pattern like sin**2(theta) and rewrite as sin(theta)**2
-    pattern = r'([a-zA-Z]+)\*\*(\d+)\(([^)]*)\)'
-    fixed_expr = re.sub(pattern, r'\1(\3)**\2', expr_str)
+    # Apply regex substitutions in a specific order for proper handling
     
-    # Log if we made a change
-    if fixed_expr != expr_str:
-        logging.debug(f"Fixed expression from '{expr_str}' to '{fixed_expr}'")
+    # Create a copy of the original string for comparison
+    original_expr = expr_str
     
-    return fixed_expr
+    # Standard mathematical functions that need special handling
+    trig_funcs = ['sin', 'cos', 'tan', 'exp', 'log', 'sinh', 'cosh', 'tanh', 'sqrt', 'Abs', 'sign']
+    
+    # 1. First handle standard trig/math functions with exponents
+    for func in trig_funcs:
+        pattern = fr'{func}\(([^()]+)\)\*\*([0-9]+|[a-zA-Z][a-zA-Z0-9_]*)'
+        expr_str = re.sub(pattern, r'(({0}(\1)))**\2'.format(func), expr_str)
+    
+    # 2. Handle arbitrary function calls with arguments followed by exponentiation
+    pattern1 = r'([a-zA-Z][a-zA-Z0-9_]*)\(([^()]+)\)\*\*([0-9]+|[a-zA-Z][a-zA-Z0-9_]*)'
+    expr_str = re.sub(pattern1, r'((\1(\2)))**\3', expr_str)
+    
+    # 3. Handle expressions in parentheses with exponentiation
+    pattern2 = r'(\([^()]+\))\*\*([0-9]+|[a-zA-Z][a-zA-Z0-9_]*)'
+    expr_str = re.sub(pattern2, r'\1**\2', expr_str)
+    
+    # If we didn't change anything and there are potential problems, apply simpler fixes
+    if expr_str == original_expr and any(f'{func}(' in expr_str for func in trig_funcs):
+        # Try a different approach for standard functions
+        for func in trig_funcs:
+            expr_str = expr_str.replace(f'{func}(', f'({func}(')
+            # Add closing parenthesis if needed, but this is tricky and may cause issues
+            # So we only do simple cases
+            simple_pattern = fr'\({func}\(([a-zA-Z0-9_]+)\)\)'
+            expr_str = re.sub(simple_pattern, r'({0}(\1))'.format(func), expr_str)
+    
+    logger.debug(f"Fixed expression: {original_expr} -> {expr_str}")
+    return expr_str
 
 @csrf_exempt
 @require_POST
@@ -158,15 +209,80 @@ def symbolic_calculation_view(request):
         for coord in coordinates:
             symbols_dict[coord] = sp.Symbol(coord)
         
-        # Add common symbols used in GR and trigonometric functions
-        for sym in ['M', 'a', 'b', 'c', 'r', 'theta', 'phi', 'R', 'R2']:
-            if sym not in symbols_dict:
+        # Add common symbols used in GR and physics
+        common_symbols = ['M', 'b', 'c', 'k', 'R', 'R2', 'a', 't', 'r', 'theta', 'phi', 'psi', 'chi', 'tau']
+        for sym in common_symbols:
+            if sym not in symbols_dict and sym not in coordinates:
                 symbols_dict[sym] = sp.Symbol(sym)
         
-        # Add trigonometric and other functions
-        for func_name in ['sin', 'cos', 'tan', 'exp', 'log']:
+        # Add trigonometric, hyperbolic, and other common functions
+        # IMPORTANT: These must be added first and preserved throughout the process
+        standard_funcs = ['sin', 'cos', 'tan', 'exp', 'log', 'sinh', 'cosh', 'tanh', 'sqrt', 'sign', 'Abs']
+        for func_name in standard_funcs:
             symbols_dict[func_name] = getattr(sp, func_name)
+            logger.info(f"Added standard math function: {func_name}")
         
+        # Process function patterns in the metric expressions
+        # Extract metric string for function pattern detection
+        metric_str = json.dumps(data["metric"])
+        
+        # Find all expressions like a(t) or f(x) in the metric text
+        func_pattern = r'([a-zA-Z][a-zA-Z0-9_]*)\(([^()]+)\)'
+        func_matches = re.findall(func_pattern, metric_str)
+        
+        # Keep track of unique function-argument pairs
+        func_arg_pairs = set()
+        for func_name, arg_name in func_matches:
+            # Skip standard mathematical functions
+            if func_name in standard_funcs:
+                logger.info(f"Preserving standard function: {func_name}")
+                continue
+            func_arg_pairs.add((func_name, arg_name))
+        
+        # Define functions found in the expressions
+        logger.info(f"Found function patterns: {func_matches}")
+        logger.info(f"Custom functions to define: {func_arg_pairs}")
+        
+        for func_name, arg_name in func_arg_pairs:
+            # Skip standard mathematical functions
+            if func_name in standard_funcs:
+                continue
+                
+            # Always remove existing symbol with the function name to prevent naming conflicts
+            if func_name in symbols_dict:
+                logger.info(f"Removing existing symbol {func_name} to replace with function")
+                del symbols_dict[func_name]
+            
+            # Ensure argument is defined as a symbol
+            arg_parts = arg_name.split()
+            for part in arg_parts:
+                # Extract actual symbol names, removing operators and numbers
+                symbol_part = re.sub(r'[^a-zA-Z]', '', part)
+                if symbol_part and symbol_part not in symbols_dict and symbol_part not in symbols_dict.values():
+                    symbols_dict[symbol_part] = sp.Symbol(symbol_part)
+                    logger.info(f"Added argument symbol {symbol_part}")
+            
+            # Define the function and add to symbols_dict
+            symbols_dict[func_name] = sp.Function(func_name)
+            logger.info(f"Defined function {func_name} with argument {arg_name}")
+        
+        # Pre-process complex expressions in metric strings
+        if metric_format == "matrix":
+            for i in range(dimension):
+                for j in range(dimension):
+                    if j < len(data["metric"][i]):
+                        expr_str = data["metric"][i][j]
+                        if expr_str:  # Skip empty strings
+                            # Fix function exponent syntax
+                            data["metric"][i][j] = _fix_fn_expo(expr_str)
+                            logger.info(f"Pre-processed expression [{i}][{j}]: {expr_str} -> {data['metric'][i][j]}")
+        else:
+            for key, expr_str in list(data["metric"].items()):
+                if expr_str:  # Skip empty strings
+                    # Fix function exponent syntax
+                    data["metric"][key] = _fix_fn_expo(expr_str)
+                    logger.info(f"Pre-processed expression {key}: {expr_str} -> {data['metric'][key]}")
+
         # Convert metric to sympy expressions
         metric_dict = {}
         
@@ -195,18 +311,65 @@ def symbolic_calculation_view(request):
                         continue
                     
                     try:
-                        # Fix function exponent syntax
-                        expr_str_fixed = _fix_fn_expo(expr_str)
-                        logger.info(f"Original expression: {expr_str} -> Fixed: {expr_str_fixed}")
-                        
                         # Convert string expression to sympy expression
-                        metric_dict[(i, j)] = sp.sympify(expr_str_fixed, locals=symbols_dict)
-                        logger.info(f"Parsed metric component [{i}][{j}]: {expr_str_fixed} -> {metric_dict[(i, j)]}")
+                        try:
+                            metric_dict[(i, j)] = sp.sympify(expr_str, locals=symbols_dict)
+                            # Apply symmetry
+                            metric_dict[(j, i)] = metric_dict[(i, j)]
+                            logger.info(f"Parsed metric component [{i}][{j}]: {expr_str} -> {metric_dict[(i, j)]}")
+                        except SyntaxError as syntax_err:
+                            logger.error(f"Syntax error in metric component [{i}][{j}]: {expr_str}, Error: {str(syntax_err)}")
+                            # Try to fix common syntax errors
+                            fixed_expr, was_fixed = balance_parentheses(expr_str)
+                            if was_fixed:
+                                logger.info(f"Fixed unbalanced parentheses: {expr_str} -> {fixed_expr}")
+                                try:
+                                    metric_dict[(i, j)] = sp.sympify(fixed_expr, locals=symbols_dict)
+                                    # Apply symmetry
+                                    metric_dict[(j, i)] = metric_dict[(i, j)]
+                                    logger.info(f"Successfully parsed after fixing: {fixed_expr} -> {metric_dict[(i, j)]}")
+                                except Exception as inner_e:
+                                    return JsonResponse({
+                                        "success": False,
+                                        "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. It appears to have unbalanced parentheses. Suggested fix: {fixed_expr}. {str(inner_e)}"
+                                    }, status=400)
+                            else:
+                                return JsonResponse({
+                                    "success": False,
+                                    "error": f"Syntax error in metric component [{i}][{j}]: {expr_str}. Please check expression syntax. {str(syntax_err)}"
+                                }, status=400)
+                        except Exception as e:
+                            logger.error(f"Error parsing metric component [{i}][{j}]: {expr_str}, Error: {str(e)}")
+                            # Check for unbalanced parentheses
+                            if "TokenError: unexpected EOF" in str(e) or "could not parse" in str(e):
+                                fixed_expr, was_fixed = balance_parentheses(expr_str)
+                                if was_fixed:
+                                    logger.info(f"Found unbalanced parentheses: {expr_str} -> {fixed_expr}")
+                                    try:
+                                        metric_dict[(i, j)] = sp.sympify(fixed_expr, locals=symbols_dict)
+                                        # Apply symmetry
+                                        metric_dict[(j, i)] = metric_dict[(i, j)]
+                                        logger.info(f"Successfully parsed after fixing: {fixed_expr} -> {metric_dict[(i, j)]}")
+                                    except Exception as inner_e:
+                                        return JsonResponse({
+                                            "success": False,
+                                            "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. It appears to have unbalanced parentheses. Suggested fix: {fixed_expr}. {str(inner_e)}"
+                                        }, status=400)
+                                else:
+                                    return JsonResponse({
+                                        "success": False,
+                                        "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. {str(e)}"
+                                    }, status=400)
+                            else:
+                                return JsonResponse({
+                                    "success": False,
+                                    "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. {str(e)}"
+                                }, status=400)
                     except Exception as e:
-                        logger.error(f"Error parsing metric component [{i}][{j}]: {expr_str_fixed}, Error: {str(e)}")
+                        logger.error(f"Error parsing metric component [{i}][{j}]: {expr_str}, Error: {str(e)}")
                         return JsonResponse({
                             "success": False,
-                            "error": f"Error parsing metric component [{i}][{j}]: {expr_str_fixed}. {str(e)}"
+                            "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. {str(e)}"
                         }, status=400)
         else:
             # Dict format: {"0,0": "expr1", "0,1": "expr2", ...}
@@ -230,22 +393,60 @@ def symbolic_calculation_view(request):
                             "error": f"Index out of bounds: ({i},{j}) for dimension {dimension}"
                         }, status=400)
                     
-                    # Fix function exponent syntax
-                    expr_str_fixed = _fix_fn_expo(expr_str)
-                    logger.info(f"Original expression: {expr_str} -> Fixed: {expr_str_fixed}")
-                    
                     # Convert string expression to sympy expression
                     try:
-                        metric_dict[(i, j)] = sp.sympify(expr_str_fixed, locals=symbols_dict)
+                        metric_dict[(i, j)] = sp.sympify(expr_str, locals=symbols_dict)
                         # Apply symmetry
                         metric_dict[(j, i)] = metric_dict[(i, j)]
-                        logger.info(f"Parsed metric component [{i}][{j}]: {expr_str_fixed} -> {metric_dict[(i, j)]}")
+                        logger.info(f"Parsed metric component [{i}][{j}]: {expr_str} -> {metric_dict[(i, j)]}")
+                    except SyntaxError as syntax_err:
+                        logger.error(f"Syntax error in metric component [{i}][{j}]: {expr_str}, Error: {str(syntax_err)}")
+                        # Try to fix common syntax errors
+                        fixed_expr, was_fixed = balance_parentheses(expr_str)
+                        if was_fixed:
+                            logger.info(f"Fixed unbalanced parentheses: {expr_str} -> {fixed_expr}")
+                            try:
+                                metric_dict[(i, j)] = sp.sympify(fixed_expr, locals=symbols_dict)
+                                # Apply symmetry
+                                metric_dict[(j, i)] = metric_dict[(i, j)]
+                                logger.info(f"Successfully parsed after fixing: {fixed_expr} -> {metric_dict[(i, j)]}")
+                            except Exception as inner_e:
+                                return JsonResponse({
+                                    "success": False,
+                                    "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. It appears to have unbalanced parentheses. Suggested fix: {fixed_expr}. {str(inner_e)}"
+                                }, status=400)
+                        else:
+                            return JsonResponse({
+                                "success": False,
+                                "error": f"Syntax error in metric component [{i}][{j}]: {expr_str}. Please check expression syntax. {str(syntax_err)}"
+                            }, status=400)
                     except Exception as e:
-                        logger.error(f"Error parsing metric component {key}: {expr_str_fixed}, Error: {str(e)}")
-                        return JsonResponse({
-                            "success": False,
-                            "error": f"Error parsing metric component {key}: {expr_str_fixed}. {str(e)}"
-                        }, status=400)
+                        logger.error(f"Error parsing metric component [{i}][{j}]: {expr_str}, Error: {str(e)}")
+                        # Check for unbalanced parentheses
+                        if "TokenError: unexpected EOF" in str(e) or "could not parse" in str(e):
+                            fixed_expr, was_fixed = balance_parentheses(expr_str)
+                            if was_fixed:
+                                logger.info(f"Found unbalanced parentheses: {expr_str} -> {fixed_expr}")
+                                try:
+                                    metric_dict[(i, j)] = sp.sympify(fixed_expr, locals=symbols_dict)
+                                    # Apply symmetry
+                                    metric_dict[(j, i)] = metric_dict[(i, j)]
+                                    logger.info(f"Successfully parsed after fixing: {fixed_expr} -> {metric_dict[(i, j)]}")
+                                except Exception as inner_e:
+                                    return JsonResponse({
+                                        "success": False,
+                                        "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. It appears to have unbalanced parentheses. Suggested fix: {fixed_expr}. {str(inner_e)}"
+                                    }, status=400)
+                            else:
+                                return JsonResponse({
+                                    "success": False,
+                                    "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. {str(e)}"
+                                }, status=400)
+                        else:
+                            return JsonResponse({
+                                "success": False,
+                                "error": f"Error parsing metric component [{i}][{j}]: {expr_str}. {str(e)}"
+                            }, status=400)
                 except Exception as e:
                     logger.error(f"Error parsing metric component {key}: {expr_str}, Error: {str(e)}")
                     return JsonResponse({

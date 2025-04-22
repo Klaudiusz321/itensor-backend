@@ -92,4 +92,15 @@ __all__ = [
     'apply_boundary_conditions',
     'apply_vector_boundary_conditions',
     'apply_divB_preserving_boundary',
-] 
+]
+
+"""
+MHD (Magnetohydrodynamics) utilities package.
+
+This package provides utilities for MHD simulations, including:
+- Core MHD system classes and solvers
+- Grid and coordinate system handling
+- Data sanitization and repair functions
+"""
+
+from .sanitization import sanitize_array, detect_and_fix_mhd_issues, repair_mhd_inconsistencies 

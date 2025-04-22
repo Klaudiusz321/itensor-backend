@@ -12,18 +12,18 @@ import traceback
 # Poprawię ścieżkę importu - mogą być literówki w nazwie katalogów
 try:
     # Próbujemy oryginalną ścieżkę
-    from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
+    from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu, parse_flrw_metric
 except ImportError:
     try:
         # Może jest literówka w "calcualtion"
-        from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
+        from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu, parse_flrw_metric
     except ImportError:
         try:
             # Może jest literówka w "prase_metric"
-            from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
+            from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu, parse_flrw_metric
         except ImportError:
             # Próbujemy wszystkie możliwe kombinacje
-            from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu
+            from myproject.utils.symbolic.prase_metric import wczytaj_metryke_z_tekstu, parse_flrw_metric
 
 try:
     from myproject.utils.symbolic.compute_tensor import (
@@ -156,6 +156,148 @@ def calculate_view(request):
     except Exception as e:
         logger.error(f"Nieoczekiwany błąd: {str(e)}", exc_info=True)
         return JsonResponse({'success': False, 'error': f'Nieoczekiwany błąd: {str(e)}'}, status=500)
+
+@csrf_exempt
+@require_POST
+def calculate_flrw_view(request):
+    """
+    API endpoint for FLRW cosmological metric calculations.
+    Takes parameters specific to FLRW metrics like scale factor a(t) and curvature k.
+    """
+    try:
+        # Parse request data
+        data = json.loads(request.body)
+        
+        # Extract FLRW parameters
+        coordinates = data.get('coordinates', ['t', 'r', 'theta', 'phi'])
+        curvature_k = data.get('curvature_k', 0)  # Default flat space (k=0)
+        scale_factor = data.get('scale_factor', 'a(t)')
+        
+        # Validate inputs
+        if len(coordinates) != 4:
+            return JsonResponse({'success': False, 'error': 'FLRW metrics require exactly 4 coordinates'}, status=400)
+        
+        # Ensure scale_factor is in the correct format
+        if '(' not in scale_factor:
+            # If the user provided something like "a" instead of "a(t)", 
+            # we'll assume they meant a function of the time coordinate
+            scale_factor = f"{scale_factor}({coordinates[0]})"
+            logger.info(f"Adjusted scale factor to: {scale_factor}")
+        
+        # Construct the FLRW metric text
+        metric_text = f"{', '.join(coordinates)}; k\n"
+        metric_text += f"0 0 -c**2\n"
+        
+        # Different form based on curvature_k
+        if curvature_k == 0:
+            # Flat FLRW
+            metric_text += f"1 1 {scale_factor}**2\n"
+        else:
+            # Open or closed FLRW
+            metric_text += f"1 1 {scale_factor}**2 / (1 - k*{coordinates[1]}**2)\n"
+            
+        metric_text += f"2 2 {scale_factor}**2 * {coordinates[1]}**2\n"
+        metric_text += f"3 3 {scale_factor}**2 * {coordinates[1]}**2 * sin({coordinates[2]})**2\n"
+        
+        logger.info(f"Generated FLRW metric text: {metric_text}")
+        
+        try:
+            # Parse metric and compute tensors
+            wspolrzedne, metryka, original_expressions = wczytaj_metryke_z_tekstu(metric_text)
+            logger.info(f"Parsed FLRW metric with coordinates: {wspolrzedne}")
+            
+            # Check if the metric is valid
+            wymiar = len(wspolrzedne)
+            matrix_form = sp.Matrix([[metryka.get((i, j), 0) for j in range(wymiar)] for i in range(wymiar)])
+            det = matrix_form.det()
+            if det == 0:
+                raise ValueError("Singular metric (determinant = 0)")
+            
+            # Calculate tensors
+            g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(wspolrzedne, metryka)
+            
+            # Calculate Einstein tensor
+            g_inv = g.inv()
+            G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, wymiar)
+            
+            # Format result
+            result = {
+                'success': True,
+                'coordinates': wspolrzedne,
+                'metric_text': metric_text,
+                'tensors': {
+                    'metric': format_tensor_components(original_expressions),
+                    'christoffel_symbols': format_christoffel_symbols(Gamma, wymiar),
+                    'ricci_tensor': format_ricci_tensor(Ricci, wymiar),
+                    'ricci_scalar': str(Scalar_Curvature),
+                    'einstein_tensor': format_einstein_tensor(G_lower, wymiar)
+                },
+                'flrw_metadata': {
+                    'coordinates': coordinates,
+                    'curvature_k': curvature_k,
+                    'scale_factor': scale_factor,
+                    'metric_type': 'FLRW cosmological'
+                }
+            }
+            
+            return JsonResponse(result, safe=False)
+            
+        except Exception as e:
+            logger.error(f"Error in FLRW calculation: {str(e)}")
+            logger.error(traceback.format_exc())
+            return JsonResponse({
+                'success': False, 
+                'error': str(e),
+                'flrw_metadata': {
+                    'coordinates': coordinates,
+                    'curvature_k': curvature_k,
+                    'scale_factor': scale_factor,
+                    'metric_type': 'FLRW cosmological'
+                }
+            })
+            
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON format'}, status=400)
+    except Exception as e:
+        logger.error(f"Unexpected error in FLRW calculation: {str(e)}", exc_info=True)
+        return JsonResponse({'success': False, 'error': f'Unexpected error: {str(e)}'}, status=500)
+
+# Helper functions for formatting tensor results
+def format_tensor_components(tensor_dict):
+    """Format tensor components for JSON response."""
+    result = {}
+    for (i, j), value in tensor_dict.items():
+        if i <= j:  # Only include upper triangular part for symmetric tensors
+            result[f"{i}{j}"] = str(value)
+    return result
+
+def format_christoffel_symbols(Gamma, n):
+    """Format Christoffel symbols for JSON response."""
+    result = {}
+    for a in range(n):
+        for b in range(n):
+            for c in range(n):
+                if Gamma[a][b][c] != 0:
+                    result[f"{a}_{{{b}{c}}}"] = str(Gamma[a][b][c])
+    return result
+
+def format_ricci_tensor(Ricci, n):
+    """Format Ricci tensor for JSON response."""
+    result = {}
+    for i in range(n):
+        for j in range(i, n):  # Use symmetry
+            if Ricci[i, j] != 0:
+                result[f"{i}{j}"] = str(Ricci[i, j])
+    return result
+
+def format_einstein_tensor(G, n):
+    """Format Einstein tensor for JSON response."""
+    result = {}
+    for i in range(n):
+        for j in range(i, n):  # Use symmetry
+            if G[i, j] != 0:
+                result[f"{i}{j}"] = str(G[i, j])
+    return result
 
 @require_GET
 def health_check(request):
