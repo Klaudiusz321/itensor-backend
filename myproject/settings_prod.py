@@ -3,7 +3,6 @@ Production settings for myproject.
 """
 import os
 from pathlib import Path
-import dj_database_url
 from .settings_base import *  # Import from base settings that don't use django-heroku
 
 # SECURITY SETTINGS
@@ -18,33 +17,13 @@ if SECRET_KEY == 'fallback-key-for-non-production-environment':
 # ALLOWED HOSTS
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
 
-# DATABASE CONFIGURATION
-# Check if we have explicit SQLite settings
-if os.environ.get('DATABASE_ENGINE') == 'django.db.backends.sqlite3':
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': os.environ.get('DATABASE_NAME', 'db.sqlite3'),
-        }
+# DATABASE CONFIGURATION - Using SQLite
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
-else:
-    # Use DATABASE_URL environment variable for database configuration
-    # Format: postgres://USER:PASSWORD@HOST:PORT/NAME
-    DATABASE_URL = os.environ.get('DATABASE_URL')
-    if DATABASE_URL:
-        DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
-    else:
-        # Fallback to PostgreSQL configuration from environment variables
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.environ.get('DB_NAME', 'itensor'),
-                'USER': os.environ.get('DB_USER', 'postgres'),
-                'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-                'HOST': os.environ.get('DB_HOST', 'localhost'),
-                'PORT': os.environ.get('DB_PORT', '5432'),
-            }
-        }
+}
 
 # CORS SETTINGS
 CORS_ALLOWED_ORIGINS = [
