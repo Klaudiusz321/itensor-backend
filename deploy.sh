@@ -10,9 +10,11 @@ python -c "
 import sys
 import time
 import psycopg2
+import django
 from django.conf import settings
 
-# Maximum wait time in seconds
+django.setup()
+
 max_wait = 60
 start_time = time.time()
 
