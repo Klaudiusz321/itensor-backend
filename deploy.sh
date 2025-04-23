@@ -10,29 +10,24 @@ python -c "
 import sys
 import time
 import psycopg2
-import django
-from django.conf import settings
-
-django.setup()
 
 max_wait = 60
-start_time = time.time()
+start = time.time()
 
 while True:
     try:
-        db_settings = settings.DATABASES['default']
         conn = psycopg2.connect(
-            dbname=db_settings.get('NAME', ''),
-            user=db_settings.get('USER', ''),
-            password=db_settings.get('PASSWORD', ''),
-            host=db_settings.get('HOST', ''),
-            port=db_settings.get('PORT', '')
+            dbname='itensordb',
+            user='itensoruser',
+            password='Leskowiec242!',
+            host='10.0.0.51',
+            port='5432'
         )
         conn.close()
         print('Database connection successful')
         break
     except Exception as e:
-        elapsed = time.time() - start_time
+        elapsed = time.time() - start
         if elapsed > max_wait:
             print(f'Could not connect to database after {max_wait} seconds: {e}')
             sys.exit(1)
