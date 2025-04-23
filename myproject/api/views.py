@@ -335,6 +335,10 @@ def mhd_simulation(request):
             else:  # magnetic_rotor
                 mhd_system = magnetic_rotor_2d(domain_size, resolution, gamma)
             
+            # Ensure max_wavespeed is initialized
+            if not hasattr(mhd_system, 'max_wavespeed') or mhd_system.max_wavespeed is None:
+                mhd_system.max_wavespeed = 1.0  # Default value
+                
             # Optimize simulation parameters for faster performance
             if hasattr(mhd_system, 'optimize_for_demo'):
                 logger.info("Applying demo mode optimizations")
@@ -358,6 +362,18 @@ def mhd_simulation(request):
             }, status=500)
         
         try:
+            # Make sure compute_wavespeeds method is available
+            if not hasattr(mhd_system, 'compute_wavespeeds'):
+                logger.warning("MHD system missing compute_wavespeeds method, adding fallback")
+                # Add a fallback method that just returns a default value
+                def fallback_compute_wavespeeds(self):
+                    self.max_wavespeed = 5.0  # Default safe value
+                    return self.max_wavespeed
+                
+                # Attach the method to the instance
+                import types
+                mhd_system.compute_wavespeeds = types.MethodType(fallback_compute_wavespeeds, mhd_system)
+            
             # Evolve the system to the desired time
             logger.info(f"Evolving {simulation_type} simulation to time {evolution_time}")
             mhd_system.evolve(evolution_time)

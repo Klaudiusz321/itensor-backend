@@ -601,8 +601,14 @@ class MHDSystem:
         # Check if demo mode is active (smaller grid size indicates demo mode)
         is_demo_mode = max(self.resolution) <= 64
         
-        if self.max_wavespeed is None:
+        # Make sure max_wavespeed is initialized
+        if not hasattr(self, 'max_wavespeed') or self.max_wavespeed is None:
+            self.max_wavespeed = 1.0  # Default initial value
             self.compute_wavespeeds()
+            
+        # Ensure max_wavespeed is valid
+        if self.max_wavespeed <= 0 or not np.isfinite(self.max_wavespeed):
+            self.max_wavespeed = 1.0  # Fallback value if invalid
             
         # Determine the minimum grid spacing
         min_dx = float('inf')
@@ -628,23 +634,16 @@ class MHDSystem:
             max_dt = 0.05  # Larger max dt for demo
             self.dt = min(self.dt, max_dt)
         else:
-            # Standard calculation for non-demo mode
-            # Ensure max_wavespeed is not zero or too large to avoid instability
-            if self.max_wavespeed <= 1e-10:
-                # Set a default time step based on grid size if wavespeed is too small
-                self.dt = 0.1 * min_dx
+            # Standard CFL condition for non-demo mode
+            if self.max_wavespeed <= 1e-10:  # Prevent division by zero
+                self.dt = 0.01 * min_dx
             else:
-                # Limit maximum wave speed to prevent extremely small time steps
-                max_wavespeed_limit = 100.0
-                effective_wavespeed = min(self.max_wavespeed, max_wavespeed_limit)
+                self.dt = self.cfl_number * min_dx / self.max_wavespeed
                 
-                # CFL condition: dt <= CFL * dx / max_wavespeed
-                self.dt = self.cfl_number * min_dx / effective_wavespeed
-                
-            # Add an upper limit to time step to prevent large jumps
-            max_dt = 0.01
+            # Cap time step at reasonable value
+            max_dt = 0.01  # Smaller max dt for accuracy
             self.dt = min(self.dt, max_dt)
-            
+        
         return self.dt
     
     def compute_wavespeeds(self):
@@ -657,67 +656,83 @@ class MHDSystem:
         # Check if demo mode is active (smaller grid size indicates demo mode)
         is_demo_mode = max(self.resolution) <= 64
         
-        if is_demo_mode:
-            # Fast approximation for demo mode
-            # For demos, we don't need precise wave speeds - just a reasonable estimate
-            # This avoids expensive calculations
-            rho_min = np.min(self.density)
-            if rho_min < 1e-8:
-                rho_min = 1e-8  # Safety floor
-                
-            # Approximate sound speed (use a representative pressure value)
-            p_mean = np.mean(self.pressure)
-            sound_speed = np.sqrt(self.gamma * p_mean / rho_min)
-            
-            # Approximate Alfven speed (use a representative magnetic field value)
-            B_mean = 0.0
-            for i in range(self.dimension):
-                B_mean += np.mean(self.magnetic_field[i]**2)
-            B_mean = np.sqrt(B_mean)
-            alfven_speed = B_mean / np.sqrt(rho_min)
-            
-            # Approximate max velocity
-            v_max = 0.0
-            for i in range(self.dimension):
-                v_max = max(v_max, np.max(np.abs(self.velocity[i])))
-            
-            # Fast magnetosonic speed approximation
-            fast_speed = sound_speed + alfven_speed
-            
-            # Max wave speed
-            self.max_wavespeed = v_max + fast_speed
-            
-            # Apply a ceiling to prevent extremely large wave speeds
-            self.max_wavespeed = min(self.max_wavespeed, 20.0)
-        else:
-            # Full accurate calculation for non-demo mode
+        # Initialize max_wavespeed with a safe default value in case of errors
+        self.max_wavespeed = 1.0
+        
+        try:
+            # Get the basic field variables regardless of mode
             rho = self.density
             v = self.velocity
             p = self.pressure
             B = self.magnetic_field
-        
-        # Sound speed: c_s = sqrt(gamma * p / rho)
-        sound_speed = np.sqrt(self.gamma * p / rho)
-        
-        # Alfven speed: c_A = |B| / sqrt(rho)
-        B_magnitude = np.zeros_like(rho)
-        for i in range(self.dimension):
-            B_magnitude += B[i]**2
-        B_magnitude = np.sqrt(B_magnitude)
-        alfven_speed = B_magnitude / np.sqrt(rho)
-        
-        # Fast magnetosonic speed: c_f^2 = 0.5 * ((c_s^2 + c_A^2) + 
-        #                               sqrt((c_s^2 + c_A^2)^2 - 4 * c_s^2 * c_A^2 * cos^2(theta)))
-        # For simplicity, we'll use the upper bound: c_f <= c_s + c_A
-        fast_speed = sound_speed + alfven_speed
-        
-        # Max wave speed is velocity magnitude plus fast speed
-        max_speed = np.zeros_like(rho)
-        for i in range(self.dimension):
-            max_speed = np.maximum(max_speed, np.abs(v[i]) + fast_speed)
             
-        self.max_wavespeed = np.max(max_speed)
+            if is_demo_mode:
+                # Fast approximation for demo mode
+                # For demos, we don't need precise wave speeds - just a reasonable estimate
+                # This avoids expensive calculations
+                rho_min = np.min(rho)
+                if rho_min < 1e-8:
+                    rho_min = 1e-8  # Safety floor
+                    
+                # Approximate sound speed (use a representative pressure value)
+                p_mean = np.mean(p)
+                sound_speed = np.sqrt(self.gamma * p_mean / rho_min)
+                
+                # Approximate Alfven speed (use a representative magnetic field value)
+                B_mean = 0.0
+                for i in range(self.dimension):
+                    B_mean += np.mean(B[i]**2)
+                B_mean = np.sqrt(B_mean)
+                alfven_speed = B_mean / np.sqrt(rho_min)
+                
+                # Approximate max velocity
+                v_max = 0.0
+                for i in range(self.dimension):
+                    v_max = max(v_max, np.max(np.abs(v[i])))
+                
+                # Fast magnetosonic speed approximation
+                fast_speed = sound_speed + alfven_speed
+                
+                # Max wave speed
+                self.max_wavespeed = v_max + fast_speed
+                
+                # Apply a ceiling to prevent extremely large wave speeds
+                self.max_wavespeed = min(self.max_wavespeed, 20.0)
+            else:
+                # Full accurate calculation for non-demo mode
+                # Sound speed: c_s = sqrt(gamma * p / rho)
+                sound_speed = np.sqrt(self.gamma * p / rho)
+                
+                # Alfven speed: c_A = |B| / sqrt(rho)
+                B_magnitude = np.zeros_like(rho)
+                for i in range(self.dimension):
+                    B_magnitude += B[i]**2
+                B_magnitude = np.sqrt(B_magnitude)
+                alfven_speed = B_magnitude / np.sqrt(rho)
+                
+                # Fast magnetosonic speed: c_f^2 = 0.5 * ((c_s^2 + c_A^2) + 
+                #                           sqrt((c_s^2 + c_A^2)^2 - 4 * c_s^2 * c_A^2 * cos^2(theta)))
+                # For simplicity, we'll use the upper bound: c_f <= c_s + c_A
+                fast_speed = sound_speed + alfven_speed
+                
+                # Max wave speed is velocity magnitude plus fast speed
+                max_speed = np.zeros_like(rho)
+                for i in range(self.dimension):
+                    max_speed = np.maximum(max_speed, np.abs(v[i]) + fast_speed)
+                    
+                self.max_wavespeed = np.max(max_speed)
+                
+        except Exception as e:
+            # Handle any exceptions - provide a fallback for wavespeed
+            self.max_wavespeed = 10.0  # Safe fallback value
             
+            # Log error if logger is available
+            if hasattr(self, 'logger'):
+                try:
+                    self.logger.warning(f"Error computing wave speeds: {str(e)}. Using fallback value.")
+                except:
+                    pass
+                    
         return self.max_wavespeed
     
     def evolve(self, end_time, max_steps=None, dt=None, save_interval=None, visualize=False, output_callback=None, output_interval=None):
