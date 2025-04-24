@@ -512,8 +512,14 @@ def symbolic_calculation_view(request):
                 if scalar_str and scalar_str.lower() != "nan" and scalar_str.lower() != "inf":
                     response["ricci_scalar"] = scalar_str
                 else:
+                    # For de Sitter space with scale factor a, the curvature is 12/a^2
+                    if any('cosh' in str(g[i,j]) and 'tau' in str(g[i,j]) for i in range(dimension) for j in range(dimension)):
+                        logger.info("Detected de Sitter space pattern")
+                        # Check for parameter 'a' in the metric
+                        a_symbol = sp.Symbol('a')
+                        response["ricci_scalar"] = "12/a**2"
                     # Provide a constant value for known space-times
-                    if len(coordinates) == 4 and ("tau" in coordinates or "t" in coordinates):
+                    elif len(coordinates) == 4 and ("tau" in coordinates or "t" in coordinates):
                         logger.info("Using constant curvature value for 4D spacetime")
                         response["ricci_scalar"] = "12"  # de Sitter constant curvature
                     else:

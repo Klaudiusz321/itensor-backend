@@ -61,6 +61,11 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
     func_pattern = r'([a-zA-Z]+)\(([a-zA-Z]+)\)'
     func_matches = re.findall(func_pattern, metric_text)
     
+    # Also check for parameter 'a' which is common in de Sitter metrics
+    if ';' in coords_line and 'a' in coords_line.split(';')[1]:
+        logger.info("Detected parameter 'a' in coordinate line")
+        local_dict['a'] = sp.Symbol('a')
+    
     # Definiujemy funkcje znalezione w tekście
     for func_name, arg_name in func_matches:
         # Upewnij się, że argument funkcji jest zdefiniowany
