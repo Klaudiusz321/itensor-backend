@@ -85,8 +85,8 @@ def wczytaj_metryke_z_tekstu(metric_text: str):
         func_key = f"{func_name}({arg_name})"
         local_dict[func_key] = func_expr
     
-    # Dodajmy funkcje trygonometryczne
-    for func_name in ['sin', 'cos', 'tan', 'cot', 'exp', 'log']:
+    # Dodajmy funkcje trygonometryczne i hiperboliczne
+    for func_name in ['sin', 'cos', 'tan', 'cot', 'exp', 'log', 'sinh', 'cosh', 'tanh']:
         local_dict[func_name] = getattr(sp, func_name)
     
     # Przechowujemy oryginalne tekstowe reprezentacje wyrażeń metryki
@@ -255,8 +255,8 @@ def parse_flrw_metric(metric_text: str):
         
         logger.info(f"Defined function {func_name}({arg_name}) = {func_expr}")
     
-    # Add trigonometric functions
-    for func_name in ['sin', 'cos', 'tan', 'cot', 'exp', 'log']:
+    # Add common trigonometric, hyperbolic, and mathematical functions
+    for func_name in ['sin', 'cos', 'tan', 'cot', 'exp', 'log', 'sinh', 'cosh', 'tanh']:
         local_dict[func_name] = getattr(sp, func_name)
     
     # Store original text expressions
