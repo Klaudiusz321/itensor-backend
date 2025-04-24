@@ -13,7 +13,7 @@ from typing import Dict, List, Tuple, Callable, Union, Optional, Any
 from sympy import Matrix, symbols, simplify, diff, sqrt, diag
 
 # Symbolic consistency checks
-def check_christoffel_symmetry(christoffel_symbols: Dict[Tuple[int, int, int], Any], 
+def check_christoffel_symmetry(christoffel_symbols: Union[Dict[Tuple[int, int, int], Any], List[List[List[Any]]]], 
                                dimension: int, 
                                tolerance: float = 1e-10) -> bool:
     """
@@ -21,8 +21,9 @@ def check_christoffel_symmetry(christoffel_symbols: Dict[Tuple[int, int, int], A
 
     Parameters
     ----------
-    christoffel_symbols : Dict[Tuple[int, int, int], Any]
-        Dictionary mapping (k, i, j) indices to the symbolic expression for Γ^k_ij
+    christoffel_symbols : Union[Dict[Tuple[int, int, int], Any], List[List[List[Any]]]
+        Either a dictionary mapping (k, i, j) indices to the symbolic expression for Γ^k_ij
+        or a 3D list with christoffel_symbols[k][i][j] for Γ^k_ij
     dimension : int
         Dimension of the space
     tolerance : float, optional
@@ -33,11 +34,28 @@ def check_christoffel_symmetry(christoffel_symbols: Dict[Tuple[int, int, int], A
     bool
         True if symmetry holds, False otherwise
     """
+    # Convert list representation to dictionary if necessary
+    if isinstance(christoffel_symbols, list):
+        christoffel_dict = {}
+        for k in range(dimension):
+            for i in range(dimension):
+                for j in range(dimension):
+                    if christoffel_symbols[k][i][j] != 0:
+                        christoffel_dict[(k, i, j)] = christoffel_symbols[k][i][j]
+    else:
+        christoffel_dict = christoffel_symbols
+
     for k in range(dimension):
         for i in range(dimension):
             for j in range(i+1, dimension):
-                symbol_1 = christoffel_symbols.get((k, i, j), 0)
-                symbol_2 = christoffel_symbols.get((k, j, i), 0)
+                # For dictionary representation
+                if isinstance(christoffel_dict, dict):
+                    symbol_1 = christoffel_dict.get((k, i, j), 0)
+                    symbol_2 = christoffel_dict.get((k, j, i), 0)
+                # For list representation (fallback, should not reach here after conversion)
+                else:
+                    symbol_1 = christoffel_symbols[k][i][j]
+                    symbol_2 = christoffel_symbols[k][j][i]
                 
                 difference = simplify(symbol_1 - symbol_2)
                 
@@ -51,7 +69,7 @@ def check_christoffel_symmetry(christoffel_symbols: Dict[Tuple[int, int, int], A
     return True
 
 def check_metric_compatibility(metric: Matrix, 
-                              christoffel_symbols: Dict[Tuple[int, int, int], Any],
+                              christoffel_symbols: Union[Dict[Tuple[int, int, int], Any], List[List[List[Any]]]],
                               coordinates: List[sp.Symbol],
                               dimension: int) -> bool:
     """
@@ -61,8 +79,9 @@ def check_metric_compatibility(metric: Matrix,
     ----------
     metric : Matrix
         The metric tensor as a sympy Matrix
-    christoffel_symbols : Dict[Tuple[int, int, int], Any]
-        Dictionary mapping (k, i, j) indices to the symbolic expression for Γ^k_ij
+    christoffel_symbols : Union[Dict[Tuple[int, int, int], Any], List[List[List[Any]]]
+        Either a dictionary mapping (k, i, j) indices to the symbolic expression for Γ^k_ij
+        or a 3D list with christoffel_symbols[k][i][j] for Γ^k_ij
     coordinates : List[sp.Symbol]
         List of coordinate symbols
     dimension : int
@@ -73,6 +92,17 @@ def check_metric_compatibility(metric: Matrix,
     bool
         True if the connection is metric-compatible, False otherwise
     """
+    # Convert list representation to dictionary if necessary
+    if isinstance(christoffel_symbols, list):
+        christoffel_dict = {}
+        for k in range(dimension):
+            for i in range(dimension):
+                for j in range(dimension):
+                    if christoffel_symbols[k][i][j] != 0:
+                        christoffel_dict[(k, i, j)] = christoffel_symbols[k][i][j]
+    else:
+        christoffel_dict = christoffel_symbols
+
     for i in range(dimension):
         for j in range(dimension):
             for k in range(dimension):
@@ -81,10 +111,18 @@ def check_metric_compatibility(metric: Matrix,
                 
                 christoffel_sum = 0
                 for l in range(dimension):
-                    christoffel_sum += (
-                        christoffel_symbols.get((l, k, i), 0) * metric[l, j] +
-                        christoffel_symbols.get((l, k, j), 0) * metric[i, l]
-                    )
+                    # For dictionary representation
+                    if isinstance(christoffel_dict, dict):
+                        christoffel_sum += (
+                            christoffel_dict.get((l, k, i), 0) * metric[l, j] +
+                            christoffel_dict.get((l, k, j), 0) * metric[i, l]
+                        )
+                    # For list representation (fallback, should not reach here after conversion)
+                    else:
+                        christoffel_sum += (
+                            christoffel_symbols[l][k][i] * metric[l, j] +
+                            christoffel_symbols[l][k][j] * metric[i, l]
+                        )
                 
                 covariant_derivative = partial_derivative - christoffel_sum
                 

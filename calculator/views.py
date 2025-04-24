@@ -306,6 +306,24 @@ def health_check(request):
     """
     return JsonResponse({'status': 'ok', 'timestamp': time.time()})
 
+@csrf_exempt
+@require_POST
+def differential_operators(request):
+    """
+    Redirector endpoint for differential operators calculations.
+    Forwards the request to the main implementation in myproject.api.views.
+    """
+    try:
+        from myproject.api.views import differential_operators as api_differential_operators
+        return api_differential_operators(request)
+    except Exception as e:
+        logger.error(f"Error in differential operators proxy: {str(e)}")
+        logger.error(traceback.format_exc())
+        return JsonResponse({
+            'success': False,
+            'error': f'Error in differential operators calculation: {str(e)}'
+        }, status=500)
+
 def compute_tensors_task(metric_text: str):
     """
     Oblicza tensory dla podanej metryki.
@@ -556,3 +574,23 @@ def compute_tensors_task(metric_text: str):
             "success": False,
             "error": str(e)
         }
+
+@require_GET
+def task_status_view(request, task_id):
+    """
+    View to check the status of a background task by its ID.
+    """
+    try:
+        # In a real implementation, this would check a task queue or database
+        # For now, we'll just return a simple response
+        return JsonResponse({
+            'task_id': task_id,
+            'status': 'completed',  # Default status for simplicity
+            'result': None
+        })
+    except Exception as e:
+        logger.error(f"Error checking task status: {str(e)}")
+        return JsonResponse({
+            'success': False,
+            'error': f"Error checking task status: {str(e)}"
+        }, status=500)

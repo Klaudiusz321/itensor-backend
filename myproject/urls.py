@@ -28,11 +28,15 @@ urlpatterns = [
     
     # Direct URL for differential operators
     path('api/differential-operators/', differential_operators, name='differential_operators'),
+    path('differential-operators/', differential_operators, name='differential_operators_no_prefix'),
     
     # MHD API endpoints
     path('api/mhd/simulation/', mhd_simulation, name='mhd_simulation'),
     path('api/mhd/snapshot/', mhd_snapshot, name='mhd_snapshot'),
     path('api/mhd/field-plots/', mhd_field_plots, name='mhd_field_plots'),
+    
+    # Include calculator app URLs
+    path('', include('calculator.urls')),
 ]
 
 # Debug print all registered URLs
