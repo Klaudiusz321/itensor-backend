@@ -15,7 +15,7 @@ if SECRET_KEY == 'fallback-key-for-non-production-environment':
     warnings.warn('Using fallback SECRET_KEY. Set SECRET_KEY environment variable in production.')
 
 # ALLOWED HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,130.61.65.14,itensor.online').split(',')
 
 # DATABASE CONFIGURATION - Using SQLite
 DATABASES = {
