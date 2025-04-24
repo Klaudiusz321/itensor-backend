@@ -7,23 +7,18 @@ It implements ideal and resistive MHD in conservative form to ensure
 conservation of mass, momentum, energy, and magnetic flux.
 """
 
-import sys
-import os
 
 import numpy as np
 import sympy as sp
 from numba import njit, prange
-from myproject.utils.differential_operators import evaluate_gradient, evaluate_divergence, evaluate_curl
-from myproject.utils.numerical.tensor_utils import flatten_3d_array
 from .grid import (
     create_grid, 
     metric_from_transformation,
     create_staggered_grid,
     compute_christoffel_symbols,
-    numerical_gradient,
-    numerical_divergence
+    
 )
-import time
+
 import math
 import logging
 
