@@ -199,4 +199,92 @@ def numerical_calculate_view(request):
         return JsonResponse({
             "success": False,
             "error": f"An unexpected error occurred: {str(e)}"
-        }, status=500) 
+        }, status=500)
+
+@csrf_exempt
+@require_POST
+def calculate_schwarzschild_christoffel(request):
+    """
+    API endpoint for calculating Christoffel symbols for Schwarzschild metric.
+    Returns the symbols in both array and textual formats.
+    """
+    try:
+        # Parse request data
+        data = json.loads(request.body)
+        G = data.get('G', 6.67430e-11)  # Gravitational constant
+        M = data.get('M', 1.0)  # Mass
+        c = data.get('c', 299792458.0)  # Speed of light
+        
+        logger.info(f"Calculating Schwarzschild Christoffel symbols with G={G}, M={M}, c={c}")
+        
+        # Calculate Christoffel symbols for Schwarzschild metric
+        # Create the full 4×4×4 array structure (0-3 for t,r,θ,φ)
+        christoffel_array = [[[0 for _ in range(4)] for _ in range(4)] for _ in range(4)]
+        
+        # Fill in the non-zero components
+        # Γ^t_tr = Γ^t_rt
+        christoffel_array[0][0][1] = f"G*M/(-2*G*M*r + c**2*r**2)"
+        christoffel_array[0][1][0] = f"G*M/(-2*G*M*r + c**2*r**2)"
+        
+        # Γ^r_tt
+        christoffel_array[1][0][0] = f"(-2*G**2*M**2 + G*M*c**2*r)/(c**2*r**3)"
+        
+        # Γ^r_rr
+        christoffel_array[1][1][1] = f"-G*M/(-2*G*M*r + c**2*r**2)"
+        
+        # Γ^r_θθ
+        christoffel_array[1][2][2] = f"2*G*M/c**2 - r"
+        
+        # Γ^r_φφ
+        christoffel_array[1][3][3] = f"2*G*M*sin(theta)**2/c**2 - r*sin(theta)**2"
+        
+        # Γ^θ_rθ = Γ^θ_θr
+        christoffel_array[2][1][2] = f"1/r"
+        christoffel_array[2][2][1] = f"1/r"
+        
+        # Γ^θ_φφ
+        christoffel_array[2][3][3] = f"-sin(2*theta)/2"
+        
+        # Γ^φ_rφ = Γ^φ_φr
+        christoffel_array[3][1][3] = f"1/r"
+        christoffel_array[3][3][1] = f"1/r"
+        
+        # Γ^φ_θφ = Γ^φ_φθ
+        christoffel_array[3][2][3] = f"1/tan(theta)"
+        christoffel_array[3][3][2] = f"1/tan(theta)"
+        
+        # Create textual representation
+        textual_symbols = [
+            "Γ^(0)_(01) = G*M/(-2*G*M*r + c**2*r**2)",
+            "Γ^(0)_(10) = G*M/(-2*G*M*r + c**2*r**2)",
+            "Γ^(1)_(00) = (-2*G**2*M**2 + G*M*c**2*r)/(c**2*r**3)",
+            "Γ^(1)_(11) = -G*M/(-2*G*M*r + c**2*r**2)",
+            "Γ^(1)_(22) = 2*G*M/c**2 - r",
+            "Γ^(1)_(33) = 2*G*M*sin(theta)**2/c**2 - r*sin(theta)**2",
+            "Γ^(2)_(12) = 1/r",
+            "Γ^(2)_(21) = 1/r",
+            "Γ^(2)_(33) = -sin(2*theta)/2",
+            "Γ^(3)_(13) = 1/r",
+            "Γ^(3)_(31) = 1/r",
+            "Γ^(3)_(23) = 1/tan(theta)",
+            "Γ^(3)_(32) = 1/tan(theta)"
+        ]
+        
+        return JsonResponse({
+            'success': True,
+            'christoffel_array': christoffel_array,
+            'christoffel_textual': textual_symbols,
+            'metadata': {
+                'G': G,
+                'M': M,
+                'c': c,
+                'metric_type': 'Schwarzschild'
+            }
+        })
+        
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'error': 'Invalid JSON format'}, status=400)
+    except Exception as e:
+        logger.error(f"Error in Schwarzschild calculation: {str(e)}")
+        logger.error(traceback.format_exc())
+        return JsonResponse({'success': False, 'error': str(e)}, status=500) 

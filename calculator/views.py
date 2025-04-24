@@ -446,6 +446,19 @@ def compute_tensors_task(metric_text: str):
                         if simplified != 0:
                             christoffel_display.append(f"Γ^{k}_{{{i}{j}}} = {convert_to_fractions(simplified)}")
         
+        # Przygotowanie pełnej tablicy wartości Christoffela jako struktury zagnieżdżonej
+        christoffel_array = []
+        for i in range(wymiar):
+            i_components = []
+            for j in range(wymiar):
+                j_components = []
+                for k in range(wymiar):
+                    symbol = gamma_components.get((i, j, k), 0)
+                    simplified = custom_simplify(symbol) if symbol != 0 else 0
+                    j_components.append(str(simplified) if simplified != 0 else 0)
+                i_components.append(j_components)
+            christoffel_array.append(i_components)
+        
         # Przygotuj tensor Riemanna do wyświetlenia
         riemann_display = []
         for i in range(wymiar):
@@ -524,6 +537,7 @@ def compute_tensors_task(metric_text: str):
             "success": True,
             "metric": metric_display,
             "christoffel": christoffel_display,
+            "christoffel_array": christoffel_array,  # Include full array representation
             "riemann": riemann_display,
             "ricci": ricci_display,
             "ricci_scalar": ricci_scalar_display,
