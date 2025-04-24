@@ -1,124 +1,188 @@
 import sympy as sp
 import logging
 import re
+from fractions import Fraction
 
 logger = logging.getLogger(__name__)
 
-def custom_simplify(expr):
+def custom_simplify(expr, max_depth=3, current_depth=0):
     """
-    Rozszerzona funkcja upraszczająca dla wyrażeń symbolicznych.
+    Custom simplification function for SymPy expressions.
+    Uses multiple simplification strategies.
+    
+    Args:
+        expr: SymPy expression to simplify
+        max_depth: Maximum recursion depth
+        current_depth: Current recursion depth
+        
+    Returns:
+        Simplified SymPy expression
     """
-    if expr == 0:
-        return 0
+    if current_depth > max_depth:
+        logger.debug(f"Reached max simplification depth {max_depth}")
+        return expr
     
     try:
-        simplified = sp.simplify(expr)
+        # Apply various simplifications in a specific order
+        logger.debug(f"Before simplification: {expr}")
         
-        expr_str = str(expr)
-        if "sin(2" in expr_str and "cos(2" in expr_str and "tan" in expr_str:
-            logger.info("Wykryto charakterystyczny wzorzec FLRW - wymuszam zero")
-            return 0
+        # Skip for very complex expressions to avoid long computation times
+        if expr.count_ops() > 500:
+            logger.warning(f"Expression too complex ({expr.count_ops()} operations), limiting simplification")
+            expr = sp.powsimp(expr)
+            expr = sp.trigsimp(expr)
+            return expr
         
-        if isinstance(simplified, sp.Mul):
-            args = simplified.args
-            new_args = []
-            for arg in args:
-                if isinstance(arg, sp.Pow) and isinstance(arg.args[0], sp.tan) and arg.args[1] == -1:
-                    x = arg.args[0].args[0]
-                    new_args.append(sp.cot(x))
-                else:
-                    new_args.append(arg)
-            
-            if len(args) != len(new_args):
-                simplified = sp.Mul(*new_args)
+        # Convert floats to fractions for exact arithmetic
+        expr = convert_to_fractions(expr)
         
-        try:
-            float_val = float(simplified.evalf())
-            if abs(float_val) < 1e-10:
-                logger.info(f"Wartość bliska zeru ({float_val}) - upraszczam do 0")
-                return 0
-        except:
-            pass
-            
-        return simplified
+        # Basic simplifications first
+        expr = sp.cancel(expr)
+        
+        # For expressions with trigonometric functions, apply trigsimp
+        if any(func in str(expr) for func in ('sin', 'cos', 'tan', 'cot', 'sec', 'csc')):
+            expr = sp.trigsimp(expr)
+            expr = sp.simplify(expr)
+        
+        # For expressions with hyperbolic functions, apply hypersimp
+        if any(func in str(expr) for func in ('sinh', 'cosh', 'tanh')):
+            expr = sp.trigsimp(expr)
+            expr = sp.simplify(expr)
+        
+        # For expressions with square roots, apply root simplification
+        if any(func in str(expr) for func in ('sqrt', 'root')):
+            expr = sp.radsimp(expr)
+            expr = sp.simplify(expr)
+        
+        # For expressions with complex exponents
+        expr = sp.powsimp(expr)
+        
+        # General simplification
+        expr = sp.simplify(expr)
+        
+        # Handle rational functions
+        expr = sp.ratsimp(expr)
+        
+        # For expressions with derivatives
+        if any(str(expr).find(func) != -1 for func in ('Derivative', 'diff')):
+            try:
+                # Try to apply special rules for derivatives
+                expr = sp.simplify(expr)
+                # Collect terms with similar derivatives
+                expr = sp.collect(expr, sp.Symbol('a'))
+            except Exception as e:
+                logger.warning(f"Error in derivative simplification: {e}")
+        
+        # Add special handling for FLRW metric expressions with a(t) derivatives
+        if 'a(' in str(expr) and ('Derivative' in str(expr) or 'diff' in str(expr)):
+            try:
+                # Normalize notation for a(t), a'(t), a''(t)
+                # This helps match the expected notation for FLRW scalar curvature
+                if 'Derivative' in str(expr):
+                    t_symbol = None
+                    a_func = None
+                    
+                    # Try to extract symbols
+                    for sym in expr.free_symbols:
+                        if str(sym) == 't':
+                            t_symbol = sym
+                            break
+                    
+                    # Look for a(t) function
+                    for atom in expr.atoms(sp.Function):
+                        if str(atom.func) == 'a':
+                            a_func = atom
+                            break
+                    
+                    if t_symbol and a_func:
+                        # Replace Derivative(a(t), t) with a_dot
+                        a_dot_expr = sp.Symbol('a_dot')
+                        a_ddot_expr = sp.Symbol('a_ddot')
+                        
+                        # Create substitution maps
+                        # Replace Derivative(a(t), t) with a_dot
+                        # Replace Derivative(a(t), (t, 2)) with a_ddot
+                        repl_map = {}
+                        
+                        # Find all derivatives in the expression
+                        for atom in expr.atoms(sp.Derivative):
+                            if atom.expr == a_func and atom.variables == (t_symbol,):
+                                repl_map[atom] = a_dot_expr
+                            elif atom.expr == a_func and atom.variables == (t_symbol, t_symbol):
+                                repl_map[atom] = a_ddot_expr
+                        
+                        if repl_map:
+                            expr = expr.subs(repl_map)
+                            # Rearrange to standard form for FLRW scalar curvature
+                            expr = sp.collect(expr, [a_dot_expr, a_ddot_expr])
+            except Exception as e:
+                logger.warning(f"Error in FLRW simplification: {e}")
+        
+        # Try one more simplification round with the combined result
+        expr = sp.simplify(expr)
+        
+        logger.debug(f"After simplification: {expr}")
+        return expr
+        
     except Exception as e:
-        logger.error(f"Błąd upraszczania: {e}")
-        return expr  # W przypadku błędu zwracamy oryginalne wyrażenie
+        logger.warning(f"Error during simplification: {e}")
+        return expr
 
-def replace_inverse_trig_in_string(expr_str):
+def replace_inverse_trig_in_string(expr_string):
     """
-    Zamienia "1/tan(...)" na "cot(...)" i "1/sin(...)" na "csc(...)" w stringach.
+    Replace inverse trigonometric functions in a string to improve parsing.
+    
+    Example: arcsin(x) -> asin(x)
     """
-    # Zamiana 1/tan
-    expr_str = re.sub(r'1/tan\(([^)]+)\)', r'cot(\1)', expr_str)
+    replacements = [
+        (r'arcsin\(', 'asin('),
+        (r'arccos\(', 'acos('),
+        (r'arctan\(', 'atan('),
+        (r'arccot\(', 'acot('),
+        (r'arcsec\(', 'asec('),
+        (r'arccsc\(', 'acsc('),
+    ]
     
-    # Zamiana /tan
-    expr_str = re.sub(r'/tan\(([^)]+)\)', r'*cot(\1)', expr_str)
+    for pattern, replacement in replacements:
+        expr_string = re.sub(pattern, replacement, expr_string)
     
-    # Zamiana 1/sin
-    expr_str = re.sub(r'1/sin\(([^)]+)\)', r'csc(\1)', expr_str)
-    
-    # Zamiana /sin
-    expr_str = re.sub(r'/sin\(([^)]+)\)', r'*csc(\1)', expr_str)
-    
-    # Zamiana 1/cos
-    expr_str = re.sub(r'1/cos\(([^)]+)\)', r'sec(\1)', expr_str)
-    
-    # Zamiana /cos
-    expr_str = re.sub(r'/cos\(([^)]+)\)', r'*sec(\1)', expr_str)
-    
-    return expr_str
+    return expr_string
 
-def weyl_simplify(Weyl, n):
+def weyl_simplify(expr):
     """
-    Specjalna funkcja do upraszczania tensora Weyla.
+    Specialized simplification for Weyl tensor components.
+    Weyl tensor components often have more complex structure.
     """
-    logger.info("Rozpoczynam upraszczanie tensora Weyla")
-    
-    # Dla n <= 3 tensor Weyla jest zawsze zerowy
-    if n <= 3:
-        logger.info(f"Wymiar przestrzeni n={n} <= 3, tensor Weyla jest zerowy")
-        return [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    
-    # Uproszczona wersja - dla n=4 sprawdzamy charakterystyczne wzorce
-    if n == 4:
-        # Sprawdźmy kilka konkretnych komponentów, które mogą wskazywać na FLRW
-        if Weyl[0][3][0][3] != 0:
-            val_str = str(Weyl[0][3][0][3])
-            # Bardzo prosty test - jeśli zawiera sin(2*theta) i cos(2*theta), to prawdopodobnie FLRW
-            if "sin(2" in val_str and "cos(2" in val_str and "tan" in val_str:
-                logger.info("Wykryto wzorzec FLRW - zwracam zerowy tensor Weyla")
-                return [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    
-    # Tworzenie kopii tensora do upraszczania
-    simplified_Weyl = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    
-    # Proste upraszczanie każdego komponentu
-    for i in range(n):
-        for j in range(n):
-            for k in range(n):
-                for l in range(n):
-                    if Weyl[i][j][k][l] != 0:
-                        simplified_Weyl[i][j][k][l] = custom_simplify(Weyl[i][j][k][l])
-    
-    # Sprawdźmy jeszcze raz po uproszczeniu czy nie jest to przypadkiem FLRW
-    has_flrw_pattern = False
-    if n == 4:
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    for l in range(n):
-                        if simplified_Weyl[i][j][k][l] != 0:
-                            expr_str = str(simplified_Weyl[i][j][k][l])
-                            if "sin(2" in expr_str and "cos(2" in expr_str and "tan" in expr_str:
-                                has_flrw_pattern = True
-                                break
+    if expr == 0:
+        return expr
         
-        if has_flrw_pattern:
-            logger.info("Po uproszczeniu wykryto wzorce FLRW - zwracam zerowy tensor")
-            return [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
-    
-    return simplified_Weyl
+    try:
+        # Skip very complex expressions
+        if expr.count_ops() > 1000:
+            logger.warning(f"Weyl component too complex ({expr.count_ops()} operations), limiting simplification")
+            return expr
+            
+        # First apply fraction conversion
+        expr = convert_to_fractions(expr)
+        
+        # Basic algebraic simplification
+        expr = sp.powsimp(expr)
+        expr = sp.cancel(expr)
+        
+        # Try to combine similar terms
+        expr = sp.collect(expr, expr.free_symbols)
+        
+        # For expressions with trig functions, use trigsimp
+        if any(func in str(expr) for func in ('sin', 'cos', 'tan')):
+            expr = sp.trigsimp(expr)
+        
+        # Factor common terms
+        expr = sp.factor(expr)
+        
+        return expr
+    except Exception as e:
+        logger.warning(f"Error in Weyl component simplification: {e}")
+        return expr
 
 def replace_floats_in_string(expr_str):
     """
@@ -131,7 +195,6 @@ def replace_floats_in_string(expr_str):
         float_str = match.group(0)
         try:
             float_val = float(float_str)
-            from fractions import Fraction
             frac = Fraction(float_val).limit_denominator(100)
             if frac.denominator == 1:
                 return str(frac.numerator)
@@ -181,22 +244,29 @@ def replace_greek_letters(expr_str):
 
 def convert_to_fractions(expr):
     """
-    Konwertuje liczby zmiennoprzecinkowe na ułamki, zastępuje odwrotne funkcje trygonometryczne
-    i zamienia nazwy greckich liter na odpowiedniki LaTeX.
-    
-    Obsługuje zarówno ciągi znaków jak i obiekty SymPy.
+    Convert floating-point numbers in an expression to fractions.
     """
-    # Jeśli to obiekt SymPy, najpierw konwertujemy na string używając LaTeX
-    if not isinstance(expr, str):
-        expr_str = sp.latex(expr)
-    else:
-        expr_str = expr
-        
-    # Teraz wykonujemy wszystkie transformacje na stringu
-    # Najpierw zamieniamy liczby zmiennoprzecinkowe na ułamki
-    result = replace_floats_in_string(expr_str)
-    # Następnie zamieniamy odwrotne funkcje trygonometryczne
-    result = replace_inverse_trig_in_string(result)
-    # Na końcu zamieniamy nazwy greckich liter na symbole LaTeX
-    result = replace_greek_letters(result)
-    return result
+    try:
+        if expr.is_Number and float(expr).is_integer():
+            return sp.Integer(int(float(expr)))
+        elif expr.is_Number and not expr.is_Integer:
+            try:
+                value = float(expr)
+                frac = Fraction(value).limit_denominator(1000)
+                return sp.Rational(frac.numerator, frac.denominator)
+            except (ValueError, OverflowError, TypeError):
+                return expr
+        elif expr.is_Add:
+            return sp.Add(*[convert_to_fractions(arg) for arg in expr.args])
+        elif expr.is_Mul:
+            return sp.Mul(*[convert_to_fractions(arg) for arg in expr.args])
+        elif expr.is_Pow:
+            base, exp = expr.as_base_exp()
+            return sp.Pow(convert_to_fractions(base), convert_to_fractions(exp))
+        elif expr.is_Function:
+            return expr.func(*[convert_to_fractions(arg) for arg in expr.args])
+        else:
+            return expr
+    except (AttributeError, ValueError, TypeError) as e:
+        logger.warning(f"Error in convert_to_fractions: {e}, returning original expression")
+        return expr

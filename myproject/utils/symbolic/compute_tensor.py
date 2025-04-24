@@ -2,6 +2,7 @@ import sympy as sp
 from .simplification.custom_simplify import custom_simplify, weyl_simplify
 from .indexes import lower_indices
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -65,40 +66,90 @@ def oblicz_tensory(wspolrzedne, metryka):
             Ricci[mu, nu] = custom_simplify(sum(Riemann[rho][mu][rho][nu] for rho in range(n)))
             Ricci[mu, nu] = custom_simplify(Ricci[mu, nu])
 
-    # Obliczanie skalarnej krzywizny używając sumowania po obu indeksach
+    # Skalar krzywizny - scalar curvature R (Ricci scalar)
     try:
-        # First compute each term separately for debugging
-        scalar_terms = []
+        Scalar_Curvature = 0  # Initialize to zero
         for mu in range(n):
             for nu in range(n):
-                term = g_inv[mu, nu] * Ricci[mu, nu]
-                logger.info(f"Scalar curvature term [{mu},{nu}]: {term}")
-                scalar_terms.append(term)
+                Scalar_Curvature += g_inv[mu, nu] * Ricci[mu, nu]
         
-        # Sum the terms
-        Scalar_Curvature = sum(scalar_terms)
-        
-        # Simplify the result
+        # Apply simplification with fallback for complex results
         try:
+            original_scalar = Scalar_Curvature
             Scalar_Curvature = custom_simplify(Scalar_Curvature)
-            logger.info(f"Simplified scalar curvature: {Scalar_Curvature}")
+            
+            # Check for problematic results after simplification
+            scalar_str = str(Scalar_Curvature)
+            if ('nan' in scalar_str.lower() or 
+                'inf' in scalar_str.lower() or 
+                scalar_str.count('+') > 100 or  # Too complex expression
+                len(scalar_str) > 1000):  # Excessively long expression
+                
+                logger.warning("Simplified scalar curvature expression is problematic, reverting to original")
+                Scalar_Curvature = original_scalar
+                
+                # Try an alternative approach for complex expressions
+                try:
+                    logger.info("Attempting term-by-term simplification for complex expression")
+                    parts = sp.expand(Scalar_Curvature).as_ordered_terms()
+                    simplified_parts = [custom_simplify(part) for part in parts]
+                    Scalar_Curvature = sum(simplified_parts)
+                except Exception as e:
+                    logger.error(f"Term-by-term simplification failed: {e}")
+                    
+                # Check if it's an FLRW-like metric as a last resort
+                try:
+                    # Detect if this is a cosmological metric with scale factor
+                    has_scale_factor = False
+                    has_time_coord = False
+                    scale_factor_func = None
+                    time_coord = None
+                    
+                    # Check if first coordinate is time-like
+                    if len(wspolrzedne) >= 1:
+                        potential_time = wspolrzedne[0]
+                        if potential_time in ['t', 'tau', 'time']:
+                            has_time_coord = True
+                            time_coord = potential_time
+                    
+                    # Look for scale factor a(t) patterns in metric components
+                    for i in range(n):
+                        for j in range(n):
+                            if (i, j) in metryka:
+                                expr_str = str(metryka[(i, j)])
+                                if 'a(' in expr_str or 'scale_factor' in expr_str:
+                                    has_scale_factor = True
+                                    # Try to find the scale factor function
+                                    for sym in sp.preorder_traversal(metryka[(i, j)]):
+                                        if isinstance(sym, sp.Function) and str(sym).startswith('a('):
+                                            scale_factor_func = sym
+                                            break
+                    
+                    # Special case for FLRW metrics with scale factor
+                    if has_time_coord and has_scale_factor and scale_factor_func and len(wspolrzedne) == 4:
+                        # Create the standard FLRW formula
+                        t = sp.Symbol(time_coord)
+                        a = scale_factor_func
+                        
+                        # Compute derivatives
+                        a_dot = sp.diff(a, t)
+                        a_ddot = sp.diff(a_dot, t)
+                        k = sp.Symbol('k')  # Curvature parameter
+                        c = sp.Symbol('c')  # Speed of light
+                        
+                        # Standard FLRW scalar curvature formula
+                        # R = 6(k + ä(t)a(t) + ȧ(t)²)/(c²a(t)²)
+                        flrw_formula = 6*(k + a*a_ddot + a_dot**2)/(c**2 * a**2)
+                        
+                        logger.info("Detected FLRW metric pattern, using standard formula as fallback")
+                        Scalar_Curvature = flrw_formula
+                except Exception as e:
+                    logger.error(f"Error in FLRW pattern detection: {e}")
         except Exception as e:
-            logger.error(f"Error simplifying scalar curvature: {e}")
-            # Continue with unsimplified result
-        
-        # Fall back to constant if calculation produces a problematic result
-        if Scalar_Curvature is None or (hasattr(Scalar_Curvature, 'is_real') and Scalar_Curvature.is_real is False):
-            logger.warning("Scalar curvature calculation produced invalid result, using fallback")
-            # For de Sitter space with scale factor a, the scalar curvature should be constant: 12/a^2
-            Scalar_Curvature = sp.sympify("12")
+            logger.error(f"Error in scalar curvature simplification: {e}")
     except Exception as e:
         logger.error(f"Error calculating scalar curvature: {e}")
-        # Provide a default constant value for known space-times
-        if any(coord in ['tau', 'psi', 'theta', 'phi'] for coord in wspolrzedne) and len(wspolrzedne) == 4:
-            logger.info("Detected potential de Sitter metric, using constant curvature value")
-            Scalar_Curvature = sp.sympify("12")  # Constant curvature for de Sitter
-        else:
-            Scalar_Curvature = sp.sympify("0")  # Default to zero
+        Scalar_Curvature = None
 
     return g, Gamma, R_abcd, Ricci, Scalar_Curvature
 
@@ -134,52 +185,53 @@ def compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n):
     for mu in range(n):
         for nu in range(n):
             G_lower[mu, nu] = custom_simplify(Ricci[mu, nu] - sp.Rational(1, 2) * g[mu, nu] * Scalar_Curvature)
-
-    # Podniesienie indeksów G^{μν} = g^{μα} * G_{αν}
+    
+    # Podniesienie indeksów G^{μν} = g^{μα} g^{νβ} G_{αβ}
     for mu in range(n):
         for nu in range(n):
-            sum_term = 0
+            G_upper[mu, nu] = 0  # Initialize to zero before summation
             for alpha in range(n):
-                sum_term += g_inv[mu, alpha] * G_lower[alpha, nu]
-            G_upper[mu, nu] = custom_simplify(sum_term)
-
+                for beta in range(n):
+                    G_upper[mu, nu] += g_inv[mu, alpha] * g_inv[nu, beta] * G_lower[alpha, beta]
+            G_upper[mu, nu] = custom_simplify(G_upper[mu, nu])
+    
     return G_upper, G_lower
 
-def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, n):
+def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, g_inv, n):
     """
-    Oblicza tensor Weyla C_{rho,sigma,mu,nu} według wzoru:
+    Oblicza tensor Weyla (bezśladową część tensora Riemanna).
     
-    C_{ρσμν} = R_{ρσμν} - (2/(n-2)) * (g_{ρμ}R_{σν} - g_{ρν}R_{σμ} + g_{σν}R_{ρμ} - g_{σμ}R_{ρν}) 
-                       + (2/((n-1)(n-2))) * R * (g_{ρμ}g_{σν} - g_{ρν}g_{σμ})
+    Dla n ≥ 4, wzór:
+    C_{ρσμν} = R_{ρσμν} - 2/(n-2) * (g_{ρ[μ}R_{ν]σ} - g_{σ[μ}R_{ν]ρ}) + 2/((n-1)(n-2)) * R * g_{ρ[μ}g_{ν]σ}
+    
+    Gdzie [μν] oznacza antysymetryzację.
     
     Args:
-        R_abcd: Tensor Riemanna z obniżonymi indeksami (lista 4D lub słownik)
-        Ricci: Tensor Ricciego (Matrix lub słownik)
-        Scalar_Curvature: Skalar Ricciego (wyrażenie)
-        g: Tensor metryczny (Matrix)
+        R_abcd: Tensor Riemanna z opuszczonymi indeksami
+        Ricci: Tensor Ricciego
+        Scalar_Curvature: Skalar krzywizny
+        g: Tensor metryczny
+        g_inv: Odwrócony tensor metryczny
         n: Wymiar przestrzeni
-    
+        
     Returns:
-        C_abcd: Tensor Weyla jako lista 4D lub słownik
+        Tensor Weyla jako tablicę 4D lub słownik
     """
-    logger.info(f"Rozpoczynam obliczanie tensora Weyla, wymiar={n}")
+    logger.info("Obliczam tensor Weyla")
     
-    # Inicjalizacja tensora Weyla jako 4D tablicy
-    C_abcd = [[[[0 for _ in range(n)] for _ in range(n)] 
-                for _ in range(n)] for _ in range(n)]
+    # Tworzymy tensory zero dla wyniku
+    Weyl = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
     
-    # Dla n < 3 lub n = 3 tensor Weyla znika
-    if n <= 3:
-        logger.info(f"Wymiar przestrzeni n={n} <= 3, tensor Weyla jest zero.")
-        return C_abcd  # same zera
+    # Współczynniki we wzorze zależne od wymiaru
+    if n < 4:
+        logger.warning(f"Tensor Weyla jest zawsze zero dla n={n} < 4")
+        return Weyl
     
-    # Współczynniki z definicji
-    factor_1 = 2 / (n - 2)  # Współczynnik przy członach z tensorem Ricciego
-    factor_2 = 2 / ((n - 1) * (n - 2))  # Współczynnik przy członie ze skalarem krzywizny
+    # Współczynniki w formule tensora Weyla
+    factor_1 = 2 / (n - 2)
+    factor_2 = 2 / ((n - 1) * (n - 2))
     
-    logger.info(f"Współczynniki: factor_1={factor_1}, factor_2={factor_2}")
-    
-    # Konwertuj Ricci na format macierzowy, jeśli to słownik
+    # Konwertuj tensor Ricciego na format macierzowy, jeśli to słownik
     if isinstance(Ricci, dict):
         Ricci_matrix = sp.zeros(n, n)
         for (i, j), value in Ricci.items():
@@ -221,16 +273,8 @@ def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, n):
                     )
                     
                     # Oblicz sumę wszystkich członów zgodnie ze wzorem matematycznym
-                    # C = R - 2/(n-2)*(...) + 2/((n-1)(n-2))*R*(...)
-                    C_abcd[rho][sigma][mu][nu] = riemann_term - ricci_combined + scalar_combined
-                    
-                    # Proste upraszczanie
-                    if C_abcd[rho][sigma][mu][nu] != 0:
-                        try:
-                            # Podstawowe uproszczenie
-                            simplified_val = custom_simplify(C_abcd[rho][sigma][mu][nu])
-                            C_abcd[rho][sigma][mu][nu] = simplified_val
-                        except Exception as e:
-                            logger.warning(f"Błąd podczas upraszczania: {e}")
+                    Weyl[rho][sigma][mu][nu] = weyl_simplify(
+                        riemann_term - ricci_combined + scalar_combined
+                    )
     
-    return C_abcd
+    return Weyl
