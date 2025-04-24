@@ -197,84 +197,84 @@ def compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n):
     
     return G_upper, G_lower
 
-def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, g_inv, n):
-    """
-    Oblicza tensor Weyla (bezśladową część tensora Riemanna).
+# def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, g_inv, n):
+#     """
+#     Oblicza tensor Weyla (bezśladową część tensora Riemanna).
     
-    Dla n ≥ 4, wzór:
-    C_{ρσμν} = R_{ρσμν} - 2/(n-2) * (g_{ρ[μ}R_{ν]σ} - g_{σ[μ}R_{ν]ρ}) + 2/((n-1)(n-2)) * R * g_{ρ[μ}g_{ν]σ}
+#     Dla n ≥ 4, wzór:
+#     C_{ρσμν} = R_{ρσμν} - 2/(n-2) * (g_{ρ[μ}R_{ν]σ} - g_{σ[μ}R_{ν]ρ}) + 2/((n-1)(n-2)) * R * g_{ρ[μ}g_{ν]σ}
     
-    Gdzie [μν] oznacza antysymetryzację.
+#     Gdzie [μν] oznacza antysymetryzację.
     
-    Args:
-        R_abcd: Tensor Riemanna z opuszczonymi indeksami
-        Ricci: Tensor Ricciego
-        Scalar_Curvature: Skalar krzywizny
-        g: Tensor metryczny
-        g_inv: Odwrócony tensor metryczny
-        n: Wymiar przestrzeni
+#     Args:
+#         R_abcd: Tensor Riemanna z opuszczonymi indeksami
+#         Ricci: Tensor Ricciego
+#         Scalar_Curvature: Skalar krzywizny
+#         g: Tensor metryczny
+#         g_inv: Odwrócony tensor metryczny
+#         n: Wymiar przestrzeni
         
-    Returns:
-        Tensor Weyla jako tablicę 4D lub słownik
-    """
-    logger.info("Obliczam tensor Weyla")
+#     Returns:
+#         Tensor Weyla jako tablicę 4D lub słownik
+#     """
+#     logger.info("Obliczam tensor Weyla")
     
-    # Tworzymy tensory zero dla wyniku
-    Weyl = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+#     # Tworzymy tensory zero dla wyniku
+#     Weyl = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
     
-    # Współczynniki we wzorze zależne od wymiaru
-    if n < 4:
-        logger.warning(f"Tensor Weyla jest zawsze zero dla n={n} < 4")
-        return Weyl
+#     # Współczynniki we wzorze zależne od wymiaru
+#     if n < 4:
+#         logger.warning(f"Tensor Weyla jest zawsze zero dla n={n} < 4")
+#         return Weyl
     
-    # Współczynniki w formule tensora Weyla
-    factor_1 = 2 / (n - 2)
-    factor_2 = 2 / ((n - 1) * (n - 2))
+#     # Współczynniki w formule tensora Weyla
+#     factor_1 = 2 / (n - 2)
+#     factor_2 = 2 / ((n - 1) * (n - 2))
     
-    # Konwertuj tensor Ricciego na format macierzowy, jeśli to słownik
-    if isinstance(Ricci, dict):
-        Ricci_matrix = sp.zeros(n, n)
-        for (i, j), value in Ricci.items():
-            Ricci_matrix[i, j] = value
-        Ricci = Ricci_matrix
+#     # Konwertuj tensor Ricciego na format macierzowy, jeśli to słownik
+#     if isinstance(Ricci, dict):
+#         Ricci_matrix = sp.zeros(n, n)
+#         for (i, j), value in Ricci.items():
+#             Ricci_matrix[i, j] = value
+#         Ricci = Ricci_matrix
     
-    # Konwertuj R_abcd na dostępny format, jeśli to słownik
-    if isinstance(R_abcd, dict):
-        R_matrix = [[[[0 for _ in range(n)] for _ in range(n)] 
-                   for _ in range(n)] for _ in range(n)]
-        for (a, b, c, d), value in R_abcd.items():
-            R_matrix[a][b][c][d] = value
-        R_abcd = R_matrix
+#     # Konwertuj R_abcd na dostępny format, jeśli to słownik
+#     if isinstance(R_abcd, dict):
+#         R_matrix = [[[[0 for _ in range(n)] for _ in range(n)] 
+#                    for _ in range(n)] for _ in range(n)]
+#         for (a, b, c, d), value in R_abcd.items():
+#             R_matrix[a][b][c][d] = value
+#         R_abcd = R_matrix
     
-    # Główne obliczenia
-    for rho in range(n):
-        for sigma in range(n):
-            for mu in range(n):
-                for nu in range(n):
-                    # 1. Człon z tensorem Riemanna (bez zmian)
-                    riemann_term = R_abcd[rho][sigma][mu][nu]
+#     # Główne obliczenia
+#     for rho in range(n):
+#         for sigma in range(n):
+#             for mu in range(n):
+#                 for nu in range(n):
+#                     # 1. Człon z tensorem Riemanna (bez zmian)
+#                     riemann_term = R_abcd[rho][sigma][mu][nu]
                     
-                    # 2. Człon z tensorem Ricciego z właściwym współczynnikiem 2/(n-2)
-                    ricci_term_1 = g[rho, mu] * Ricci[sigma, nu]
-                    ricci_term_2 = g[rho, nu] * Ricci[sigma, mu]
-                    ricci_term_3 = g[sigma, nu] * Ricci[rho, mu]
-                    ricci_term_4 = g[sigma, mu] * Ricci[rho, nu]
+#                     # 2. Człon z tensorem Ricciego z właściwym współczynnikiem 2/(n-2)
+#                     ricci_term_1 = g[rho, mu] * Ricci[sigma, nu]
+#                     ricci_term_2 = g[rho, nu] * Ricci[sigma, mu]
+#                     ricci_term_3 = g[sigma, nu] * Ricci[rho, mu]
+#                     ricci_term_4 = g[sigma, mu] * Ricci[rho, nu]
                     
-                    ricci_combined = factor_1 * (
-                        ricci_term_1 - ricci_term_2 - ricci_term_3 + ricci_term_4
-                    )
+#                     ricci_combined = factor_1 * (
+#                         ricci_term_1 - ricci_term_2 - ricci_term_3 + ricci_term_4
+#                     )
                     
-                    # 3. Człon ze skalarem krzywizny z właściwym współczynnikiem 2/((n-1)(n-2))
-                    scalar_term_1 = g[rho, mu] * g[sigma, nu]
-                    scalar_term_2 = g[rho, nu] * g[sigma, mu]
+#                     # 3. Człon ze skalarem krzywizny z właściwym współczynnikiem 2/((n-1)(n-2))
+#                     scalar_term_1 = g[rho, mu] * g[sigma, nu]
+#                     scalar_term_2 = g[rho, nu] * g[sigma, mu]
                     
-                    scalar_combined = factor_2 * Scalar_Curvature * (
-                        scalar_term_1 - scalar_term_2
-                    )
+#                     scalar_combined = factor_2 * Scalar_Curvature * (
+#                         scalar_term_1 - scalar_term_2
+#                     )
                     
-                    # Oblicz sumę wszystkich członów zgodnie ze wzorem matematycznym
-                    Weyl[rho][sigma][mu][nu] = weyl_simplify(
-                        riemann_term - ricci_combined + scalar_combined
-                    )
+#                     # Oblicz sumę wszystkich członów zgodnie ze wzorem matematycznym
+#                     Weyl[rho][sigma][mu][nu] = weyl_simplify(
+#                         riemann_term - ricci_combined + scalar_combined
+#                     )
     
-    return Weyl
+#     return Weyl
