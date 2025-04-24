@@ -483,7 +483,7 @@ def symbolic_calculation_view(request):
             # Calculate Weyl tensor if dimension > 3
             Weyl = None
             if dimension > 3:
-                Weyl = compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, dimension)
+                Weyl = compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, g_inv, dimension)
             
             # Generate LaTeX output
             logger.info("Generating LaTeX output")

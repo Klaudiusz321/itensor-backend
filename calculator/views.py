@@ -411,7 +411,7 @@ def compute_tensors_task(metric_text: str):
                 logger.info(weyl_info)
             else:
                 # Obliczamy tensor Weyla
-                Weyl = compute_weyl_tensor(riemann_components, ricci_components, Scalar_Curvature, g, n)
+                Weyl = compute_weyl_tensor(riemann_components, ricci_components, Scalar_Curvature, g, g_inv, n)
                 
                 # Konwertujemy tensor Weyla na słownik
                 weyl_components = {}
