@@ -15,16 +15,18 @@ if SECRET_KEY == 'fallback-key-for-non-production-environment':
     warnings.warn('Using fallback SECRET_KEY. Set SECRET_KEY environment variable in production.')
 
 # ALLOWED HOSTS
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,130.61.65.14,itensor.online').split(',')
-
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# Add hosts with ports
+ALLOWED_HOSTS += [f"{host}:8000" for host in ALLOWED_HOSTS]
+# Add explicit wildcard
+ALLOWED_HOSTS.append('*')
 # DATABASE CONFIGURATION - Using SQLite
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True  # For development/testing only, restrict this in production
 CORS_ALLOW_CREDENTIALS = True
