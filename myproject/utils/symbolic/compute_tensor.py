@@ -48,8 +48,8 @@ def oblicz_tensory(wspolrzedne, metryka):
             for nu in range(n):
                 Gamma_sum = 0
                 for lam in range(n):
-                    partial_mu  = sp.diff(g[nu, lam], wspolrzedne[mu])
-                    partial_nu  = sp.diff(g[mu, lam], wspolrzedne[nu])
+                    partial_mu = sp.diff(g[nu, lam], wspolrzedne[mu])
+                    partial_nu = sp.diff(g[mu, lam], wspolrzedne[nu])
                     partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
                     Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
                 Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)

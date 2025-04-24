@@ -7,72 +7,22 @@ logger = logging.getLogger(__name__)
 
 def custom_simplify(expr):
     """
-    Apply custom simplification rules for tensor expressions.
-    This uses a series of simplification steps optimized for differential geometry.
+    Apply custom simplification rules for tensor expressions using the sequence
+    from the original code that worked correctly.
     """
     if expr is None:
         return None
-        
-    # Skip simplification for large expressions
-    if isinstance(expr, sp.Expr) and expr.count_ops() > 1000:
-        logger.warning("Expression too large for simplification, skipping")
-        return expr
-        
+    
     try:
-        # First try sympy's own simplification
-        simplified = sp.simplify(expr)
+        # Use the exact sequence from the original code that produced correct results
+        expr_simpl = sp.expand(expr)
+        expr_simpl = sp.trigsimp(expr_simpl)
+        expr_simpl = sp.factor(expr_simpl)
+        expr_simpl = sp.simplify(expr_simpl)
+        expr_simpl = sp.cancel(expr_simpl)
+        expr_simpl = sp.ratsimp(expr_simpl)
         
-        # Additional trigonometric simplifications
-        if 'cos' in str(simplified) or 'sin' in str(simplified) or 'tan' in str(simplified):
-            simplified = sp.trigsimp(simplified)
-            
-            # Special handling for spherical coordinates
-            if ('sin(psi)' in str(simplified) or 'sin(theta)' in str(simplified)):
-                # Look for patterns in Christoffel symbols
-                if 'cos(psi)/sin(psi)' in str(simplified):
-                    simplified = simplified.subs(sp.cos(sp.Symbol('psi'))/sp.sin(sp.Symbol('psi')), 
-                                              1/sp.tan(sp.Symbol('psi')))
-                
-                if 'cos(theta)/sin(theta)' in str(simplified):
-                    simplified = simplified.subs(sp.cos(sp.Symbol('theta'))/sp.sin(sp.Symbol('theta')), 
-                                             1/sp.tan(sp.Symbol('theta')))
-                
-                # Simplify sin(2*theta) and sin(2*psi) expressions
-                simplified = simplified.subs(2*sp.sin(sp.Symbol('theta'))*sp.cos(sp.Symbol('theta')),
-                                        sp.sin(2*sp.Symbol('theta')))
-                simplified = simplified.subs(2*sp.sin(sp.Symbol('psi'))*sp.cos(sp.Symbol('psi')),
-                                        sp.sin(2*sp.Symbol('psi')))
-                
-                # Special cases for Einstein tensor in spherical coordinates
-                if 'a**2' in str(simplified):
-                    a = sp.Symbol('a')
-                    # Attempt more aggressive simplification for complex expressions
-                    simplified = sp.trigsimp(simplified)
-                    simplified = sp.collect(simplified, a)
-            
-        # Simplify hyperbolic functions which are common in de Sitter metrics
-        if 'cosh' in str(simplified) or 'sinh' in str(simplified) or 'tanh' in str(simplified):
-            # Special handling for de Sitter space expressions with cosh
-            simplified = sp.expand(simplified)
-            simplified = sp.powsimp(simplified)
-            
-            # Special case: try to recognize patterns for known curvature results
-            if 'a**2' in str(simplified) and 'cosh(tau)' in str(simplified):
-                if 'diff' in str(simplified) or sp.diff in str(simplified):
-                    logger.info("Detected de Sitter curvature pattern")
-                    a = sp.Symbol('a')
-                    # Check if this is a calculation related to Ricci scalar
-                    if simplified.count_ops() > 50:  # Complex expression likely related to curvature
-                        logger.info("Applying special de Sitter curvature formula")
-                        return 12/a**2
-                    
-        # Rationalize denominator for cleaner expressions
-        simplified = sp.together(simplified)
-        
-        # Final expand and collect like terms
-        simplified = sp.expand(simplified)
-        
-        return simplified
+        return expr_simpl
     except Exception as e:
         logger.error(f"Error in custom simplification: {e}")
         return expr  # Return original expression if simplification fails
@@ -83,14 +33,15 @@ def weyl_simplify(expr):
         if expr is None or expr == 0:
             return expr
             
-        # Simplify but don't expand too much for Weyl tensor
-        simplified = sp.simplify(expr)
+        # Use the same sequence as custom_simplify for consistency
+        expr_simpl = sp.expand(expr)
+        expr_simpl = sp.trigsimp(expr_simpl)
+        expr_simpl = sp.factor(expr_simpl)
+        expr_simpl = sp.simplify(expr_simpl)
+        expr_simpl = sp.cancel(expr_simpl)
+        expr_simpl = sp.ratsimp(expr_simpl)
         
-        # Specialized for hyperbolic functions in de Sitter space
-        if 'cosh' in str(simplified) or 'sinh' in str(simplified):
-            simplified = sp.powsimp(simplified)
-        
-        return simplified
+        return expr_simpl
     except Exception as e:
         logger.error(f"Error in Weyl tensor simplification: {e}")
         return expr
@@ -179,21 +130,23 @@ def convert_to_fractions(expr):
     # Convert to string first
     expr_str = str(expr)
     
-    # Special handling for spherical space with parameter a
-    if 'a**2' in expr_str and ('sin(psi)' in expr_str or 'sin(theta)' in expr_str):
-        # Check for specific pattern of 3D sphere scalar curvature
-        if expr_str.count('sin') > 1 and expr_str.count('**2') > 1:
-            logger.info("Detected spherical metric pattern in expression")
-            # If this is likely the scalar curvature expression
-            if expr.count_ops() > 20 or 'Ricci' in expr_str:
-                return "6/a**2"
+    # Special handling for constant curvature spaces
     
-    # Special handling for de Sitter space
-    if 'a**2' in expr_str and ('cosh(tau)' in expr_str or 'sinh(tau)' in expr_str):
-        # Try to identify if this is a standard curvature result
-        if expr.count_ops() > 20:  # Complex expression
-            logger.info("Identified de Sitter curvature pattern")
-            return "12/a**2"
+    # 3D sphere with parameter a
+    if expr_str == "6/a**2" or (isinstance(expr, sp.Expr) and 
+                                sp.simplify(expr - 6/sp.Symbol('a')**2) == 0):
+        return "6/a**2"
+    
+    # de Sitter space
+    if expr_str == "12/a**2" or (isinstance(expr, sp.Expr) and 
+                                sp.simplify(expr - 12/sp.Symbol('a')**2) == 0):
+        return "12/a**2"
+    
+    # Special handling for common patterns in spherical metrics
+    if 'cos(psi)/sin(psi)' in expr_str:
+        expr_str = expr_str.replace('cos(psi)/sin(psi)', '1/tan(psi)')
+    if 'cos(theta)/sin(theta)' in expr_str:
+        expr_str = expr_str.replace('cos(theta)/sin(theta)', '1/tan(theta)')
     
     # Replace decimals with fractions
     float_pattern = r'[-+]?[0-9]*\.[0-9]+'
@@ -215,5 +168,11 @@ def convert_to_fractions(expr):
     
     # Replace inverse trigonometric functions for consistency
     result = replace_inverse_trig_in_string(result)
+    
+    # Special case for sin(2*theta) and similar forms
+    if 'sin(2*theta)' in result:
+        result = result.replace('2*sin(theta)*cos(theta)', 'sin(2*theta)')
+    if 'sin(2*psi)' in result:
+        result = result.replace('2*sin(psi)*cos(psi)', 'sin(2*psi)')
     
     return result
