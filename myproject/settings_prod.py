@@ -25,16 +25,37 @@ DATABASES = {
     }
 }
 
-# CORS SETTINGS
+# CORS settings
+CORS_ALLOW_ALL_ORIGINS = True  # For development/testing only, restrict this in production
+CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
-    os.environ.get('FRONTEND_URL', 'https://itensor.online'),
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://itensor.online",
+    "https://www.itensor.online"
 ]
-
-# If set, allow all origins - use with caution
-if os.environ.get('CORS_ALLOW_ALL', 'False').lower() == 'true':
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https?://localhost(:\d+)?$",
+]
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # CSRF SETTINGS
 CSRF_TRUSTED_ORIGINS = [
