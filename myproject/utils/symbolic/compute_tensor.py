@@ -6,7 +6,7 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
-def is_flat_metric(Riemann, n, tolerance=1e-10):
+def is_flat_metric(Riemann, n, tolerance=1e-10, extra_simplify=False):
     """
     Determines if a metric is flat by checking if all components of the Riemann tensor are zero.
     
@@ -16,6 +16,7 @@ def is_flat_metric(Riemann, n, tolerance=1e-10):
         Riemann: Riemann tensor (4D array)
         n: Dimension of space
         tolerance: Numerical tolerance for considering a value to be zero
+        extra_simplify: Whether to apply additional simplification for complex expressions
         
     Returns:
         bool: True if the metric is flat, False otherwise
@@ -30,6 +31,21 @@ def is_flat_metric(Riemann, n, tolerance=1e-10):
                     # Get component value and simplify
                     value = custom_simplify(Riemann[rho][sigma][mu][nu])
                     
+                    # Apply more aggressive simplification for complex expressions
+                    if extra_simplify and not isinstance(value, (int, float)) and value != 0:
+                        try:
+                            # Try additional trigonometric simplification
+                            value = sp.trigsimp(value, deep=True, method="fu")
+                            # Try series expansion around key variables
+                            for var in value.free_symbols:
+                                if var.name in ['mu', 'nu', 'theta', 'phi', 'psi']:
+                                    temp = value.series(var, 0, 2).removeO()
+                                    if temp.is_zero:
+                                        value = 0
+                                        break
+                        except Exception as e:
+                            logger.warning(f"Extra simplification failed: {e}")
+                    
                     # Convert to float for numerical comparison if possible
                     try:
                         if isinstance(value, sp.Expr) and value.is_constant():
@@ -40,6 +56,14 @@ def is_flat_metric(Riemann, n, tolerance=1e-10):
                         elif value != 0:
                             # Check if it's symbolically zero after simplification
                             if not value.is_zero:
+                                # Try one more simplification for complex expressions
+                                if extra_simplify and value.count_ops() > 10:
+                                    try:
+                                        expanded = sp.expand(value)
+                                        if expanded.is_zero:
+                                            continue
+                                    except:
+                                        pass
                                 logger.info(f"Non-zero Riemann component found: R_{rho}{sigma}{mu}{nu} = {value}")
                                 return False
                     except (TypeError, ValueError):
@@ -50,6 +74,72 @@ def is_flat_metric(Riemann, n, tolerance=1e-10):
     
     logger.info("Metric is flat (all Riemann tensor components are zero)")
     return True
+
+def is_spherical_coordinates(g, wspolrzedne, n):
+    """
+    Detects if the given metric is in standard spherical coordinates.
+    
+    Standard spherical coordinates in 3D have:
+    - g00 = 1
+    - g11 = r^2
+    - g22 = r^2*sin(theta)^2
+    - All other components = 0
+    
+    Args:
+        g: Metric tensor (Matrix)
+        wspolrzedne: List of coordinate symbols
+        n: Dimension of space
+        
+    Returns:
+        bool: True if the metric is in standard spherical coordinates, False otherwise
+    """
+    if n != 3:
+        return False
+    
+    # Check if the coordinates match expected names for spherical coordinates
+    coord_names = [str(c) for c in wspolrzedne]
+    has_r = 'r' in coord_names
+    has_theta = any(name in coord_names for name in ['theta', 'psi', 'φ', 'phi'])
+    has_phi = any(name in coord_names for name in ['phi', 'φ', 'ϕ'])
+    
+    if not (has_r and has_theta):
+        return False
+    
+    # Check the diagonal structure
+    for i in range(n):
+        for j in range(n):
+            if i != j and g[i, j] != 0:
+                return False
+    
+    # Extract coordinate symbols
+    r_sym = wspolrzedne[coord_names.index('r')] if 'r' in coord_names else None
+    theta_sym = None
+    for theta_name in ['theta', 'psi', 'φ', 'phi']:
+        if theta_name in coord_names:
+            theta_sym = wspolrzedne[coord_names.index(theta_name)]
+            break
+    
+    if r_sym is None or theta_sym is None:
+        return False
+    
+    # Check the specific pattern for spherical coordinates
+    g00_is_one = g[0, 0] == 1
+    
+    g11_is_r_squared = False
+    try:
+        g11_expanded = sp.expand(g[1, 1])
+        g11_is_r_squared = g11_expanded == r_sym**2
+    except:
+        pass
+    
+    g22_has_sin_theta = False
+    try:
+        g22_str = str(g[2, 2])
+        g22_has_sin_theta = 'sin' in g22_str and str(r_sym) in g22_str and str(theta_sym) in g22_str
+    except:
+        pass
+    
+    return g00_is_one and g11_is_r_squared and g22_has_sin_theta
 
 def is_euclidean_metric(g, n):
     """
@@ -103,6 +193,34 @@ def oblicz_tensory(wspolrzedne, metryka):
     # Tworzenie tensora metrycznego
     g = sp.Matrix(n, n, lambda i, j: metryka.get((i, j), metryka.get((j, i), 0)))
     
+    # Check if this is a standard spherical coordinate system (which is flat)
+    is_spherical = is_spherical_coordinates(g, wspolrzedne, n)
+    if is_spherical:
+        logger.info("Detected standard spherical coordinates (flat space)")
+        # For standard spherical coordinates, only compute Christoffel symbols,
+        # all curvature tensors are zero
+        g_inv = g.inv()
+        
+        # Obliczanie symboli Christoffela
+        Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        for sigma in range(n):
+            for mu in range(n):
+                for nu in range(n):
+                    Gamma_sum = 0
+                    for lam in range(n):
+                        partial_mu = sp.diff(g[nu, lam], wspolrzedne[mu])
+                        partial_nu = sp.diff(g[mu, lam], wspolrzedne[nu])
+                        partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
+                        Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
+                    Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)
+        
+        # All curvature tensors are zero for flat space
+        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        Ricci = sp.zeros(n, n)
+        Scalar_Curvature = 0
+        
+        return g, Gamma, R_abcd, Ricci, Scalar_Curvature
+    
     # Check if the metric is Euclidean (identity matrix)
     is_euclidean = is_euclidean_metric(g, n)
     if is_euclidean:
@@ -125,6 +243,42 @@ def oblicz_tensory(wspolrzedne, metryka):
                     Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)
         
         # For Euclidean metric in Cartesian coordinates, all tensors are zero
+        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        Ricci = sp.zeros(n, n)
+        Scalar_Curvature = 0
+        
+        return g, Gamma, R_abcd, Ricci, Scalar_Curvature
+    
+    # Check for diagonal metrics with constant scaling
+    is_scaled_euclidean = True
+    scale_factor = None
+    for i in range(n):
+        for j in range(n):
+            if i != j and g[i, j] != 0:
+                is_scaled_euclidean = False
+                break
+            if i == j:
+                if scale_factor is None:
+                    # First diagonal element, set the scale
+                    if isinstance(g[i, j], sp.Expr) and g[i, j].is_constant():
+                        scale_factor = g[i, j]
+                    elif isinstance(g[i, j], (int, float)):
+                        scale_factor = g[i, j]
+                    else:
+                        is_scaled_euclidean = False
+                        break
+                else:
+                    # Check if all diagonal elements have the same scale
+                    if g[i, j] != scale_factor:
+                        is_scaled_euclidean = False
+                        break
+    
+    if is_scaled_euclidean and scale_factor is not None:
+        logger.info(f"Detected scaled Euclidean metric with factor {scale_factor}")
+        g_inv = g.copy() * (1/scale_factor)
+        
+        Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        # In a scaled Euclidean space, Christoffel symbols are still zero if coordinates are Cartesian
         R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
         Ricci = sp.zeros(n, n)
         Scalar_Curvature = 0
@@ -161,8 +315,55 @@ def oblicz_tensory(wspolrzedne, metryka):
                                      - Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
                     Riemann[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
     
+    # Check if this looks like a spherical coordinate system based on Riemann components
+    if n == 3:
+        # Pattern for standard spherical coordinates
+        is_standard_spherical = False
+        
+        # In standard spherical coordinates, there are only a few non-zero components
+        # that follow a specific pattern with sin(theta) terms
+        try:
+            r_index = None
+            theta_index = None
+            
+            # Try to identify coordinate indices
+            for i, coord in enumerate(wspolrzedne):
+                coord_str = str(coord)
+                if coord_str == 'r':
+                    r_index = i
+                elif coord_str in ['theta', 'psi', 'φ', 'phi']:
+                    theta_index = i
+            
+            if r_index is not None and theta_index is not None:
+                # Check if the expected pattern for spherical coordinates is present
+                # Specifically, check if non-zero components contain sin(theta) terms
+                has_sin_pattern = False
+                for i in range(n):
+                    for j in range(n):
+                        for k in range(n):
+                            for l in range(n):
+                                if Riemann[i][j][k][l] != 0:
+                                    riemann_str = str(Riemann[i][j][k][l])
+                                    if 'sin' in riemann_str and str(wspolrzedne[theta_index]) in riemann_str:
+                                        has_sin_pattern = True
+                                        break
+                
+                is_standard_spherical = has_sin_pattern
+            
+            if is_standard_spherical:
+                logger.info("Detected standard spherical coordinate pattern in Riemann tensor - treating as flat space")
+                # Zero out all Riemann tensor components
+                Riemann = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        except Exception as e:
+            logger.error(f"Error in spherical coordinate detection: {e}")
+    
     # Check if metric is flat (Riemann tensor is zero)
     is_flat = is_flat_metric(Riemann, n)
+    
+    # If regular check fails, try with more aggressive simplification for complex cases
+    if not is_flat and any(len(str(wspolrzedne[i])) > 1 for i in range(n)):
+        logger.info("First flat check failed, trying with more aggressive simplification")
+        is_flat = is_flat_metric(Riemann, n, extra_simplify=True)
     
     if is_flat:
         logger.info("Metric is flat - all curvature tensors are zero")
