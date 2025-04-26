@@ -103,7 +103,7 @@ CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [
-    "https://calculator1-fc4166db17b2.herokuapp.com",
+    
     "https://itensor.online",
     "http://localhost:3000",
     "http://127.0.0.1:3000",

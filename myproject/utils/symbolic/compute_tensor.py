@@ -6,6 +6,69 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
+def is_flat_metric(Riemann, n, tolerance=1e-10):
+    """
+    Determines if a metric is flat by checking if all components of the Riemann tensor are zero.
+    
+    A metric is flat if and only if the Riemann tensor vanishes everywhere.
+    
+    Args:
+        Riemann: Riemann tensor (4D array)
+        n: Dimension of space
+        tolerance: Numerical tolerance for considering a value to be zero
+        
+    Returns:
+        bool: True if the metric is flat, False otherwise
+    """
+    logger.info("Checking if metric is flat")
+    
+    # Check each component of the Riemann tensor
+    for rho in range(n):
+        for sigma in range(n):
+            for mu in range(n):
+                for nu in range(n):
+                    # Get component value and simplify
+                    value = custom_simplify(Riemann[rho][sigma][mu][nu])
+                    
+                    # Convert to float for numerical comparison if possible
+                    try:
+                        if isinstance(value, sp.Expr) and value.is_constant():
+                            value_float = float(value)
+                            if abs(value_float) > tolerance:
+                                logger.info(f"Non-zero Riemann component found: R_{rho}{sigma}{mu}{nu} = {value}")
+                                return False
+                        elif value != 0:
+                            # Check if it's symbolically zero after simplification
+                            if not value.is_zero:
+                                logger.info(f"Non-zero Riemann component found: R_{rho}{sigma}{mu}{nu} = {value}")
+                                return False
+                    except (TypeError, ValueError):
+                        # If cannot convert to float, check if zero symbolically
+                        if value != 0:
+                            logger.info(f"Non-zero Riemann component found: R_{rho}{sigma}{mu}{nu} = {value}")
+                            return False
+    
+    logger.info("Metric is flat (all Riemann tensor components are zero)")
+    return True
+
+def is_euclidean_metric(g, n):
+    """
+    Checks if the metric is Euclidean (identity matrix)
+    
+    Args:
+        g: Metric tensor (Matrix)
+        n: Dimension of space
+        
+    Returns:
+        bool: True if the metric is Euclidean, False otherwise
+    """
+    for i in range(n):
+        for j in range(n):
+            expected = 1 if i == j else 0
+            if g[i, j] != expected:
+                return False
+    return True
+
 def oblicz_tensory(wspolrzedne, metryka):
     """
     Oblicza podstawowe tensory geometryczne dla podanej metryki.
@@ -39,6 +102,36 @@ def oblicz_tensory(wspolrzedne, metryka):
 
     # Tworzenie tensora metrycznego
     g = sp.Matrix(n, n, lambda i, j: metryka.get((i, j), metryka.get((j, i), 0)))
+    
+    # Check if the metric is Euclidean (identity matrix)
+    is_euclidean = is_euclidean_metric(g, n)
+    if is_euclidean:
+        logger.info("Detected Euclidean metric (identity matrix)")
+        # For Euclidean metric, all tensors except Christoffel symbols are zero
+        # But we still calculate Christoffel symbols as they depend on coordinate system
+        g_inv = g.copy()  # For Euclidean metric, inverse is the same
+        
+        # Obliczanie symboli Christoffela
+        Gamma = [[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        for sigma in range(n):
+            for mu in range(n):
+                for nu in range(n):
+                    Gamma_sum = 0
+                    for lam in range(n):
+                        partial_mu = sp.diff(g[nu, lam], wspolrzedne[mu])
+                        partial_nu = sp.diff(g[mu, lam], wspolrzedne[nu])
+                        partial_lam = sp.diff(g[mu, nu], wspolrzedne[lam])
+                        Gamma_sum += g_inv[sigma, lam] * (partial_mu + partial_nu - partial_lam)
+                    Gamma[sigma][mu][nu] = custom_simplify(sp.Rational(1, 2) * Gamma_sum)
+        
+        # For Euclidean metric in Cartesian coordinates, all tensors are zero
+        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        Ricci = sp.zeros(n, n)
+        Scalar_Curvature = 0
+        
+        return g, Gamma, R_abcd, Ricci, Scalar_Curvature
+    
+    # Continue with normal calculations for non-Euclidean metrics
     g_inv = g.inv()
 
     # Obliczanie symboli Christoffela
@@ -67,6 +160,19 @@ def oblicz_tensory(wspolrzedne, metryka):
                         sum_term += (Gamma[rho][mu][lam] * Gamma[lam][nu][sigma]
                                      - Gamma[rho][nu][lam] * Gamma[lam][mu][sigma])
                     Riemann[rho][sigma][mu][nu] = custom_simplify(term1 - term2 + sum_term)
+    
+    # Check if metric is flat (Riemann tensor is zero)
+    is_flat = is_flat_metric(Riemann, n)
+    
+    if is_flat:
+        logger.info("Metric is flat - all curvature tensors are zero")
+        # For flat metrics, only compute the Christoffel symbols (already done)
+        # All other curvature tensors are zero
+        R_abcd = [[[[0 for _ in range(n)] for _ in range(n)] for _ in range(n)] for _ in range(n)]
+        Ricci = sp.zeros(n, n)
+        Scalar_Curvature = 0
+        
+        return g, Gamma, R_abcd, Ricci, Scalar_Curvature
 
     # Obniżanie indeksów tensora Riemanna
     R_abcd = lower_indices(Riemann, g, n)
@@ -188,6 +294,18 @@ def compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, n):
     """
     logger.info("Obliczam tensor Einsteina")
     
+    # Check if all components of the Ricci tensor are zero and scalar curvature is zero
+    # This indicates a flat space, where Einstein tensor is zero
+    is_flat = True
+    if isinstance(Ricci, dict):
+        is_flat = all(value == 0 for value in Ricci.values()) and Scalar_Curvature == 0
+    else:
+        is_flat = all(Ricci[i, j] == 0 for i in range(n) for j in range(n)) and Scalar_Curvature == 0
+    
+    if is_flat:
+        logger.info("Flat space detected - Einstein tensor is zero")
+        return sp.zeros(n, n), sp.zeros(n, n)
+    
     # Konwertuj tensor Ricciego na format macierzowy, jeśli to słownik
     if isinstance(Ricci, dict):
         Ricci_matrix = sp.zeros(n, n)
@@ -266,6 +384,20 @@ def compute_weyl_tensor(R_abcd, Ricci, Scalar_Curvature, g, g_inv, n):
     # Współczynniki we wzorze zależne od wymiaru
     if n < 4:
         logger.warning(f"Tensor Weyla jest zawsze zero dla n={n} < 4")
+        return Weyl
+    
+    # Check if all components of the Riemann tensor are zero
+    # This indicates a flat space, where Weyl tensor is zero
+    is_flat = True
+    if isinstance(R_abcd, dict):
+        is_flat = all(value == 0 for value in R_abcd.values())
+    else:
+        is_flat = all(R_abcd[i][j][k][l] == 0 
+                    for i in range(n) for j in range(n) 
+                    for k in range(n) for l in range(n))
+    
+    if is_flat:
+        logger.info("Flat space detected - Weyl tensor is zero")
         return Weyl
     
     # Współczynniki w formule tensora Weyla
