@@ -1,6 +1,6 @@
 # iTensor: Tensor Operations for Differential Geometry
 
-A Python module for tensor operations and differential geometry calculations, supporting both symbolic (using SymPy) and numeric (using NumPy) computations.
+A Python-based web service for tensor operations and differential geometry calculations, supporting both symbolic (using SymPy) and numeric (using NumPy) computations. The backend is built with Django and provides a RESTful API for tensor calculations.
 
 ## Features
 
@@ -9,147 +9,158 @@ A Python module for tensor operations and differential geometry calculations, su
 - **Differential Operators**: Calculate gradients, divergences, curls, and Laplacians in any coordinate system
 - **Tensor Operations**: Transform tensors between coordinate systems
 - **Christoffel Symbols**: Compute Christoffel symbols and related geometric quantities
+- **Curvature Tensors**: Calculate Riemann tensor, Ricci tensor, scalar curvature, and Einstein tensor
+- **Flat Metric Detection**: Automatically identify flat metrics in various coordinate systems
 - **Visualization**: Built-in tools for visualizing scalar and vector fields
 
 ## Installation
 
+### Prerequisites
+- Python 3.8+
+- Git
+- Docker (optional, for containerized deployment)
+
+### Local Development Setup
+
 ```bash
+# Clone the repository
 git clone https://github.com/yourusername/Tensor-backend-calculator.git
 cd Tensor-backend-calculator
-pip install -e .
+
+# Create a virtual environment (optional but recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run migrations
+python manage.py migrate
+
+# Start the development server
+python manage.py runserver
 ```
 
-## Quick Start
+## API Endpoints
 
-```python
-import numpy as np
-import sympy as sp
-from myproject.utils.differential_operators import (
-    symbolic_gradient, symbolic_divergence, symbolic_laplacian,
-    numeric_gradient, numeric_divergence, numeric_laplacian,
-    spherical_coordinates, cartesian_to_spherical, spherical_to_cartesian
-)
+The API provides several endpoints for tensor calculations:
 
-# Symbolic example (using SymPy)
-# -----------------------------
-# Define spherical coordinates
-r, theta, phi = sp.symbols('r theta phi', real=True, positive=True)
+- `/api/compute_tensors/`: Calculate tensor quantities for a given metric
+- `/api/differential_operators/`: Compute differential operators on scalar/vector fields
+- `/api/transformations/`: Transform between coordinate systems
+- `/api/numeric/`: Perform numeric tensor calculations
+- `/api/symbolic/`: Perform symbolic tensor calculations
 
-# Define a scalar field
-f = r**2 * sp.sin(theta)**2 * sp.cos(phi)
+For detailed API documentation, visit `/api/docs/` after starting the server.
 
-# Get the metric tensor for spherical coordinates
-g = spherical_coordinates([r, theta, phi])
-
-# Compute the gradient of the scalar field
-grad_f = symbolic_gradient(f, g, [r, theta, phi])
-
-# Compute the Laplacian
-laplacian_f = symbolic_laplacian(f, g, [r, theta, phi])
-
-# Numeric example (using NumPy)
-# ----------------------------
-# Create a 3D grid in spherical coordinates
-r_vals = np.linspace(0.1, 2.0, 20)
-theta_vals = np.linspace(0.1, np.pi-0.1, 20)
-phi_vals = np.linspace(0, 2*np.pi-0.1, 20)
-r_grid, theta_grid, phi_grid = np.meshgrid(r_vals, theta_vals, phi_vals, indexing='ij')
-grid = [r_grid, theta_grid, phi_grid]
-
-# Define a scalar field on the grid
-scalar_field = r_grid**2 * np.sin(theta_grid)**2 * np.cos(phi_grid)
-
-# Create the metric tensor
-metric = np.zeros((3, 3) + r_grid.shape)
-for i in range(r_grid.shape[0]):
-    for j in range(r_grid.shape[1]):
-        for k in range(r_grid.shape[2]):
-            r_val, theta_val = r_grid[i,j,k], theta_grid[i,j,k]
-            metric[0, 0, i, j, k] = 1.0  # g_rr = 1
-            metric[1, 1, i, j, k] = r_val**2  # g_θθ = r²
-            metric[2, 2, i, j, k] = r_val**2 * np.sin(theta_val)**2  # g_φφ = r²sin²θ
-
-# Compute the inverse metric
-metric_inverse = np.zeros_like(metric)
-for i in range(r_grid.shape[0]):
-    for j in range(r_grid.shape[1]):
-        for k in range(r_grid.shape[2]):
-            metric_inverse[:, :, i, j, k] = np.linalg.inv(metric[:, :, i, j, k])
-
-# Compute the gradient
-gradient = numeric_gradient(scalar_field, metric_inverse, grid)
-
-# Compute the Laplacian
-laplacian = numeric_laplacian(scalar_field, metric, grid)
-```
-
-## Module Structure
+## Core Module Structure
 
 - `myproject/`
+  - `api/`: API endpoints and serializers
   - `utils/`
-    - `differential_operators/`
-      - `__init__.py` - Package initialization and imports
-      - `symbolic.py` - Symbolic differential operators using SymPy
-      - `numeric.py` - Numeric differential operators using NumPy
-      - `transforms.py` - Coordinate transformations
+    - `differential_operators/`: Differential geometry operators
+      - `symbolic.py`: Symbolic differential operators using SymPy
+      - `numeric.py`: Numeric differential operators using NumPy
+      - `transforms.py`: Coordinate transformations
+    - `symbolic/`: Symbolic tensor calculations
+      - `compute_tensor.py`: Core tensor computation module
+      - `simplification/`: Expression simplification utilities
+    - `numerical/`: Numeric tensor calculations
+    - `mhd/`: Magnetohydrodynamics simulation utilities
+- `calculator/`: Django app for tensor calculations
+  - `views.py`: Main view functions
+  - `symbolic_views.py`: Symbolic calculation views
+  - `numerical_views.py`: Numerical calculation views
+  - `differential_operators_views.py`: Views for differential operators
 
-## Running the Examples
+## Example Usage
 
-Each module contains runnable examples that demonstrate its functionality. To run them:
+### Sample Input Metric (Spherical Coordinates)
+
+```python
+# Spherical coordinates
+r, theta, phi = sp.symbols('r theta phi', real=True, positive=True)
+
+# Metric tensor components
+g = {
+    (0, 0): 1,
+    (1, 1): r**2,
+    (2, 2): r**2 * sp.sin(theta)**2
+}
+
+# Compute tensor quantities
+result = compute_tensors(coordinates=[r, theta, phi], metric=g)
+```
+
+### Output
+```
+Christoffel symbols (Γ^a_{bc}):
+Γ^1_{11} = 0
+Γ^1_{22} = -r*sin(θ)^2
+Γ^1_{33} = -r
+Γ^2_{12} = 1/r
+Γ^2_{33} = -sin(θ)*cos(θ)
+Γ^3_{13} = 1/r
+Γ^3_{23} = cot(θ)
+
+Riemann tensor (R_{abcd}):
+All components = 0 (flat metric)
+
+Ricci tensor (R_{ij}):
+All components = 0
+
+Scalar Curvature:
+R = 0
+```
+
+## Testing
 
 ```bash
-# Run the main demo
-python -m myproject.utils.differential_operators
+# Run unit tests
+python manage.py test
 
-# Run specific module examples
-python -m myproject.utils.differential_operators.symbolic
-python -m myproject.utils.differential_operators.numeric
-python -m myproject.utils.differential_operators.transforms
+# Run specific test file
+python test_flat_metrics.py
+
+# Test with Docker
+./deploy_test.sh
 ```
 
-## Advanced Usage
+## Deployment
 
-### Custom Coordinate Systems
+The project includes Docker configurations for easy deployment:
 
-You can define custom coordinate systems by specifying their metric tensors:
+```bash
+# Build and deploy with Docker
+docker build -t itensor-backend .
+docker run -p 8000:8000 itensor-backend
 
-```python
-import sympy as sp
+# Production deployment
+./deploy.sh
 
-# Define curvilinear coordinates
-u, v, w = sp.symbols('u v w', real=True)
-
-# Define the metric tensor components
-g_uu = 1
-g_vv = u**2
-g_ww = u**2 * sp.sin(v)**2
-
-# Create the metric tensor
-g = sp.zeros(3, 3)
-g[0, 0] = g_uu
-g[1, 1] = g_vv
-g[2, 2] = g_ww
-
-# Now you can use this metric with any differential operator
+# Test deployment
+./deploy_test.sh
 ```
 
-### Vector Fields and Tensor Operations
-
-```python
-# Define a vector field in spherical coordinates
-V = [r*sp.sin(theta), r*sp.cos(theta), 0]
-
-# Compute the divergence
-div_V = symbolic_divergence(V, g, [r, theta, phi])
-
-# Compute the curl (for 3D vector fields)
-curl_V = symbolic_curl(V, g, [r, theta, phi])
-```
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgements
+
+- [SymPy](https://www.sympy.org/) - Python library for symbolic mathematics
+- [NumPy](https://numpy.org/) - Fundamental package for scientific computing with Python
+- [Django](https://www.djangoproject.com/) - High-level Python Web framework
+- [Django REST Framework](https://www.django-rest-framework.org/) - Toolkit for building Web APIs
