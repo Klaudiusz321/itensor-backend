@@ -13,7 +13,7 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
     Args:
         dimension (int): Dimension of the space
         coords (list): List of coordinate symbols
-        metric (dict): Dictionary of metric components with keys like "00", "01", etc.
+        metric (list or dict): Either a 2D list/array of metric components or a dictionary with keys like "00", "01", etc.
         evaluation_point (dict, optional): Dictionary mapping coordinates to values for evaluation
         
     Returns:
@@ -30,27 +30,58 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
             else:
                 return {"error": "Empty coordinate name provided"}
         
-        # Convert metric dictionary to the format expected by oblicz_tensory
+        # Convert metric to the format expected by oblicz_tensory
         metric_dict = {}
-        for key, value in metric.items():
-            if len(key) != 2:
-                return {"error": f"Invalid metric key: {key}. Should be 2 digits."}
+        
+        # Check if metric is a 2D list/array
+        if isinstance(metric, list):
+            if len(metric) != dimension:
+                return {"error": f"Metric dimensions don't match: expected {dimension}x{dimension}, got {len(metric)}x?"}
             
-            try:
-                i, j = int(key[0]), int(key[1])
-                if i >= dimension or j >= dimension:
-                    return {"error": f"Metric component {key} out of bounds for dimension {dimension}"}
+            for i, row in enumerate(metric):
+                if len(row) != dimension:
+                    return {"error": f"Metric row {i} has {len(row)} elements, expected {dimension}"}
                 
-                # Parse the expression string to a sympy expression
-                expr_str = str(value)
+                for j, value in enumerate(row):
+                    try:
+                        # Parse the expression string to a sympy expression
+                        expr_str = str(value)
+                        if expr_str == "0":
+                            continue  # Skip zero components to save time
+                        
+                        expr = sp.sympify(expr_str)
+                        metric_dict[(i, j)] = expr
+                    except Exception as e:
+                        return {"error": f"Could not parse metric expression at [{i}][{j}]: {value}. Error: {str(e)}"}
+        
+        # Check if metric is a dictionary
+        elif isinstance(metric, dict):
+            for key, value in metric.items():
+                if len(key) != 2:
+                    return {"error": f"Invalid metric key: {key}. Should be 2 digits."}
+                
                 try:
+                    i, j = int(key[0]), int(key[1])
+                    if i >= dimension or j >= dimension:
+                        return {"error": f"Metric component {key} out of bounds for dimension {dimension}"}
+                    
+                    # Parse the expression string to a sympy expression
+                    expr_str = str(value)
+                    if expr_str == "0":
+                        continue  # Skip zero components to save time
+                    
                     expr = sp.sympify(expr_str)
                     metric_dict[(i, j)] = expr
-                    metric_dict[(j, i)] = expr  # Symmetric metric
-                except Exception as e:
-                    return {"error": f"Could not parse metric expression: {expr_str}. Error: {str(e)}"}
-            except ValueError:
-                return {"error": f"Invalid metric key format: {key}. Should be digits."}
+                except ValueError:
+                    return {"error": f"Invalid metric key format: {key}. Should be digits."}
+        else:
+            return {"error": "Metric must be either a 2D list/array or a dictionary"}
+        
+        # Make sure the metric is symmetric
+        for i in range(dimension):
+            for j in range(dimension):
+                if (i, j) in metric_dict and (j, i) not in metric_dict:
+                    metric_dict[(j, i)] = metric_dict[(i, j)]
         
         # Compute tensor quantities
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(coord_symbols, metric_dict)
@@ -142,7 +173,6 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
             "success": True,
             "dimension": dimension,
             "coordinates": coords,
-            "metric": {key: str(value) for key, value in metric.items()},
             "tensors": {
                 "christoffel": christoffel_components,
                 "riemann": riemann_components,
