@@ -8,6 +8,9 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 import traceback
+from rest_framework.viewsets import ModelViewSet
+from .models import Tensor
+from .serializers import TensorSerializer
 
 # Poprawię ścieżkę importu - mogą być literówki w nazwie katalogów
 try:
@@ -594,3 +597,19 @@ def task_status_view(request, task_id):
             'success': False,
             'error': f"Error checking task status: {str(e)}"
         }, status=500)
+
+class TensorViewSet(ModelViewSet):
+    """
+    ViewSet for performing CRUD operations on Tensor models.
+    
+    Provides:
+    - list: GET /api/tensors/
+    - retrieve: GET /api/tensors/{id}/
+    - create: POST /api/tensors/
+    - update: PUT /api/tensors/{id}/
+    - partial_update: PATCH /api/tensors/{id}/
+    - destroy: DELETE /api/tensors/{id}/
+    """
+    queryset = Tensor.objects.all()
+    serializer_class = TensorSerializer
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
