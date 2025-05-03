@@ -4,6 +4,7 @@ import traceback
 from myproject.utils.symbolic.compute_tensor import oblicz_tensory, compute_einstein_tensor
 from myproject.utils.symbolic.simplification.custom_simplify import custom_simplify
 from .models import Tensor
+from django.db import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -24,47 +25,52 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
     try:
         logger.info(f"Computing symbolic tensors for {dimension}D metric")
         
-        # Generate hash for this calculation to check cache
-        metric_hash = Tensor.generate_metric_hash(dimension, coords, metric)
-        logger.info(f"Generated metric hash: {metric_hash}")
-        
-        # Check if we already have cached results for this metric
-        cached_tensor = Tensor.objects.filter(metric_hash=metric_hash).first()
-        if cached_tensor:
-            logger.info(f"Found cached result for metric with hash {metric_hash}")
+        # Check for cached results - but don't fail if caching is unavailable
+        try:
+            # Generate hash for this calculation to check cache
+            metric_hash = Tensor.generate_metric_hash(dimension, coords, metric)
+            logger.info(f"Generated metric hash: {metric_hash}")
             
-            # Prepare the cached result
-            result = {
-                "success": True,
-                "coordinates": coords,
-                "dimension": dimension,
-                "christoffelSymbols": cached_tensor.christoffel_symbols,
-                "riemannTensor": cached_tensor.riemann_tensor,
-                "ricciTensor": cached_tensor.ricci_tensor,
-                "scalarCurvature": cached_tensor.scalar_curvature,
-                "einsteinTensor": cached_tensor.einstein_tensor,
-                "weylTensor": [],
-                "cached": True,
-                "rawData": {
-                    "dimension": dimension,
+            # Check if we already have cached results for this metric
+            cached_tensor = Tensor.objects.filter(metric_hash=metric_hash).first()
+            if cached_tensor and hasattr(cached_tensor, 'christoffel_symbols'):
+                logger.info(f"Found cached result for metric with hash {metric_hash}")
+                
+                # Prepare the cached result
+                result = {
+                    "success": True,
                     "coordinates": coords,
-                    "tensors": {
-                        "christoffel": cached_tensor.christoffel_symbols,
-                        "riemann": cached_tensor.riemann_tensor,
-                        "ricci": cached_tensor.ricci_tensor,
-                        "scalar_curvature": cached_tensor.scalar_curvature,
-                        "einstein": cached_tensor.einstein_tensor
+                    "dimension": dimension,
+                    "christoffelSymbols": cached_tensor.christoffel_symbols,
+                    "riemannTensor": cached_tensor.riemann_tensor,
+                    "ricciTensor": cached_tensor.ricci_tensor,
+                    "scalarCurvature": cached_tensor.scalar_curvature,
+                    "einsteinTensor": cached_tensor.einstein_tensor,
+                    "weylTensor": [],
+                    "cached": True,
+                    "rawData": {
+                        "dimension": dimension,
+                        "coordinates": coords,
+                        "tensors": {
+                            "christoffel": cached_tensor.christoffel_symbols,
+                            "riemann": cached_tensor.riemann_tensor,
+                            "ricci": cached_tensor.ricci_tensor,
+                            "scalar_curvature": cached_tensor.scalar_curvature,
+                            "einstein": cached_tensor.einstein_tensor
+                        }
                     }
                 }
-            }
-            
-            # If evaluation point is provided, evaluate the tensors
-            if evaluation_point:
-                result = evaluate_at_point(result, coords, evaluation_point)
                 
-            return result
+                # If evaluation point is provided, evaluate the tensors
+                if evaluation_point:
+                    result = evaluate_at_point(result, coords, evaluation_point)
+                    
+                return result
+        except (AttributeError, OperationalError, Exception) as e:
+            # If any error occurs during cache lookup, just log it and continue with calculation
+            logger.warning(f"Cache lookup failed, will calculate from scratch: {str(e)}")
         
-        logger.info("No cached result found, computing tensors...")
+        logger.info("No cached result found or caching unavailable, computing tensors...")
         
         # Convert string coordinates to sympy symbols
         coord_symbols = []
@@ -195,7 +201,7 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
         # Format Weyl tensor (placeholder - would need to implement actual calculation)
         weyl_tensor = []
         
-        # Cache the results in database
+        # Try to cache the results in database, but don't fail if caching is unavailable
         try:
             name = f"Metric in {', '.join(coords)} coordinates"
             if coords[0] == 't' and coords[1] == 'r' and any('theta' in c for c in coords):
@@ -205,21 +211,33 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
                 elif 'a(t)' in str(metric) and ('sin(theta)' in str(metric) or 'sin(psi)' in str(metric)):
                     name = "FLRW metric"
             
-            # Create and save the tensor
-            tensor = Tensor(
-                name=name,
-                metric_hash=metric_hash,
-                dimension=dimension,
-                coordinates=coords,
-                metric_data=metric,
-                christoffel_symbols=christoffel_symbols,
-                riemann_tensor=riemann_tensor,
-                ricci_tensor=ricci_tensor,
-                scalar_curvature=str(Scalar_Curvature),
-                einstein_tensor=einstein_tensor
-            )
-            tensor.save()
-            logger.info(f"Saved metric calculation with hash {metric_hash}")
+            # Create a simple tensor object if caching is unavailable
+            try:
+                # Create and save the tensor with full caching fields
+                tensor = Tensor(
+                    name=name,
+                    metric_hash=Tensor.generate_metric_hash(dimension, coords, metric),
+                    dimension=dimension,
+                    coordinates=coords,
+                    metric_data=metric,
+                    christoffel_symbols=christoffel_symbols,
+                    riemann_tensor=riemann_tensor,
+                    ricci_tensor=ricci_tensor,
+                    scalar_curvature=str(Scalar_Curvature),
+                    einstein_tensor=einstein_tensor
+                )
+                tensor.save()
+                logger.info(f"Saved tensor calculation to database")
+            except OperationalError as e:
+                # If missing columns, fall back to the basic model fields
+                logger.warning(f"Caching with full fields failed, trying minimal save: {str(e)}")
+                tensor = Tensor(
+                    name=name,
+                    components={"info": "Basic save without caching support"},
+                    description=f"Tensor calculation for {coords} coordinates"
+                )
+                tensor.save()
+                logger.info("Saved basic tensor info (caching not available)")
         except Exception as e:
             logger.error(f"Error caching results: {str(e)}")
             # Don't fail the whole calculation if caching fails

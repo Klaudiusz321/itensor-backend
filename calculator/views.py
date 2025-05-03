@@ -627,19 +627,54 @@ class TensorViewSet(ModelViewSet):
             # Set default values for any missing fields
             data = request.data.copy()
             
-            # Ensure metric_hash is generated if coordinates and metric are provided
-            if 'coordinates' in data and 'metric_data' in data and 'dimension' in data:
-                data['metric_hash'] = Tensor.generate_metric_hash(
-                    data['dimension'],
-                    data['coordinates'],
-                    data['metric_data']
-                )
+            # Ensure that only valid fields are included
+            # This prevents errors with fields that might not exist in the database yet
+            basic_fields = ['name', 'components', 'description']
+            filtered_data = {}
+            
+            # Always include basic fields
+            for field in basic_fields:
+                if field in data:
+                    filtered_data[field] = data[field]
             
             # Set default name if not provided
-            if not data.get('name'):
-                data['name'] = f"Tensor created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            if not filtered_data.get('name'):
+                filtered_data['name'] = f"Tensor created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                
+            # Set default components if empty
+            if not filtered_data.get('components'):
+                filtered_data['components'] = {}
+                
+            # Try to include extended fields only if they're supported
+            try:
+                # Try to see if the model has these fields by checking the first object
+                sample = Tensor.objects.first()
+                if sample and hasattr(sample, 'metric_hash'):
+                    # Model supports caching fields, include them
+                    extended_fields = [
+                        'metric_hash', 'dimension', 'coordinates', 'metric_data',
+                        'christoffel_symbols', 'riemann_tensor', 'ricci_tensor',
+                        'scalar_curvature', 'einstein_tensor'
+                    ]
+                    
+                    for field in extended_fields:
+                        if field in data:
+                            filtered_data[field] = data[field]
+                    
+                    # Generate metric_hash if needed
+                    if ('coordinates' in filtered_data and 'metric_data' in filtered_data
+                            and 'dimension' in filtered_data and 'metric_hash' not in filtered_data):
+                        filtered_data['metric_hash'] = Tensor.generate_metric_hash(
+                            filtered_data['dimension'],
+                            filtered_data['coordinates'],
+                            filtered_data['metric_data']
+                        )
+            except Exception as e:
+                # If error occurs, just continue with basic fields
+                logger.warning(f"Error checking for extended fields: {str(e)}")
             
-            serializer = self.get_serializer(data=data)
+            # Create serializer with filtered data
+            serializer = self.get_serializer(data=filtered_data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
             headers = self.get_success_headers(serializer.data)
@@ -656,15 +691,20 @@ class TensorViewSet(ModelViewSet):
     @action(detail=False, methods=['post'], url_path='symbolic')
     def symbolic(self, request):
         data = request.data
-        # Validate
-        for key in ('dimension','coordinates','metric','evaluation_point'):
-            if key not in data:
-                return Response({'error': f'Missing field: {key}'}, status=400)
+        # Validate required fields
+        required_fields = ('dimension', 'coordinates', 'metric')
+        missing_fields = [field for field in required_fields if field not in data]
+        
+        if missing_fields:
+            return Response({
+                'error': f"Missing required fields: {', '.join(missing_fields)}"
+            }, status=400)
 
+        # Use empty dict as default for evaluation_point if not provided
         result = compute_symbolic(
             dimension=data['dimension'],
             coords=data['coordinates'],
             metric=data['metric'],
-            evaluation_point=data['evaluation_point']
+            evaluation_point=data.get('evaluation_point', {})
         )
         return Response(result)
