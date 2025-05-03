@@ -3,12 +3,14 @@ import sympy as sp
 import traceback
 from myproject.utils.symbolic.compute_tensor import oblicz_tensory, compute_einstein_tensor
 from myproject.utils.symbolic.simplification.custom_simplify import custom_simplify
+from .models import Tensor
 
 logger = logging.getLogger(__name__)
 
 def compute_symbolic(dimension, coords, metric, evaluation_point=None):
     """
     Compute symbolic tensor quantities for the given metric.
+    Cache results for reuse to avoid redundant calculations.
     
     Args:
         dimension (int): Dimension of the space
@@ -21,6 +23,48 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
     """
     try:
         logger.info(f"Computing symbolic tensors for {dimension}D metric")
+        
+        # Generate hash for this calculation to check cache
+        metric_hash = Tensor.generate_metric_hash(dimension, coords, metric)
+        logger.info(f"Generated metric hash: {metric_hash}")
+        
+        # Check if we already have cached results for this metric
+        cached_tensor = Tensor.objects.filter(metric_hash=metric_hash).first()
+        if cached_tensor:
+            logger.info(f"Found cached result for metric with hash {metric_hash}")
+            
+            # Prepare the cached result
+            result = {
+                "success": True,
+                "coordinates": coords,
+                "dimension": dimension,
+                "christoffelSymbols": cached_tensor.christoffel_symbols,
+                "riemannTensor": cached_tensor.riemann_tensor,
+                "ricciTensor": cached_tensor.ricci_tensor,
+                "scalarCurvature": cached_tensor.scalar_curvature,
+                "einsteinTensor": cached_tensor.einstein_tensor,
+                "weylTensor": [],
+                "cached": True,
+                "rawData": {
+                    "dimension": dimension,
+                    "coordinates": coords,
+                    "tensors": {
+                        "christoffel": cached_tensor.christoffel_symbols,
+                        "riemann": cached_tensor.riemann_tensor,
+                        "ricci": cached_tensor.ricci_tensor,
+                        "scalar_curvature": cached_tensor.scalar_curvature,
+                        "einstein": cached_tensor.einstein_tensor
+                    }
+                }
+            }
+            
+            # If evaluation point is provided, evaluate the tensors
+            if evaluation_point:
+                result = evaluate_at_point(result, coords, evaluation_point)
+                
+            return result
+        
+        logger.info("No cached result found, computing tensors...")
         
         # Convert string coordinates to sympy symbols
         coord_symbols = []
@@ -151,25 +195,34 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
         # Format Weyl tensor (placeholder - would need to implement actual calculation)
         weyl_tensor = []
         
-        # Evaluate at a specific point if provided
-        evaluated_results = None
-        if evaluation_point:
-            try:
-                substitutions = {}
-                for coord, value in evaluation_point.items():
-                    if coord in coords:
-                        symbol = sp.Symbol(coord)
-                        substitutions[symbol] = value
-                
-                # Evaluate scalar curvature
-                evaluated_scalar = Scalar_Curvature.subs(substitutions)
-                evaluated_results = {
-                    "evaluationPoint": evaluation_point,
-                    "scalarCurvature": float(evaluated_scalar)
-                }
-            except Exception as e:
-                logger.error(f"Error evaluating at point: {str(e)}")
-                evaluated_results = {"error": f"Error evaluating at point: {str(e)}"}
+        # Cache the results in database
+        try:
+            name = f"Metric in {', '.join(coords)} coordinates"
+            if coords[0] == 't' and coords[1] == 'r' and any('theta' in c for c in coords):
+                # Try to identify common metrics
+                if '2*M/r' in str(metric) and 'sin(theta)' in str(metric):
+                    name = "Schwarzschild metric"
+                elif 'a(t)' in str(metric) and ('sin(theta)' in str(metric) or 'sin(psi)' in str(metric)):
+                    name = "FLRW metric"
+            
+            # Create and save the tensor
+            tensor = Tensor(
+                name=name,
+                metric_hash=metric_hash,
+                dimension=dimension,
+                coordinates=coords,
+                metric_data=metric,
+                christoffel_symbols=christoffel_symbols,
+                riemann_tensor=riemann_tensor,
+                ricci_tensor=ricci_tensor,
+                scalar_curvature=str(Scalar_Curvature),
+                einstein_tensor=einstein_tensor
+            )
+            tensor.save()
+            logger.info(f"Saved metric calculation with hash {metric_hash}")
+        except Exception as e:
+            logger.error(f"Error caching results: {str(e)}")
+            # Don't fail the whole calculation if caching fails
         
         # Prepare the final result in the format expected by the frontend
         result = {
@@ -182,6 +235,7 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
             "scalarCurvature": str(Scalar_Curvature),
             "einsteinTensor": einstein_tensor,
             "weylTensor": weyl_tensor,
+            "cached": False,
             "rawData": {
                 "dimension": dimension,
                 "coordinates": coords,
@@ -195,13 +249,38 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
             }
         }
         
-        # Add evaluated results if available
-        if evaluated_results:
-            result["evaluated"] = evaluated_results
+        # Evaluate at a specific point if provided
+        if evaluation_point:
+            result = evaluate_at_point(result, coords, evaluation_point)
         
         return result
         
     except Exception as e:
         logger.error(f"Error in symbolic computation: {str(e)}")
         logger.error(traceback.format_exc())
-        return {"error": f"Error in symbolic computation: {str(e)}"} 
+        return {"error": f"Error in symbolic computation: {str(e)}"}
+
+def evaluate_at_point(result, coords, evaluation_point):
+    """Helper function to evaluate symbolic results at a specific point"""
+    try:
+        substitutions = {}
+        for coord, value in evaluation_point.items():
+            if coord in coords:
+                symbol = sp.Symbol(coord)
+                substitutions[symbol] = value
+        
+        # Evaluate scalar curvature
+        scalar_expr = sp.sympify(result["scalarCurvature"])
+        evaluated_scalar = scalar_expr.subs(substitutions)
+        
+        # Add evaluated results
+        result["evaluated"] = {
+            "evaluationPoint": evaluation_point,
+            "scalarCurvature": float(evaluated_scalar) if evaluated_scalar.is_Number else str(evaluated_scalar)
+        }
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error evaluating at point: {str(e)}")
+        result["evaluated"] = {"error": f"Error evaluating at point: {str(e)}"}
+        return result 
