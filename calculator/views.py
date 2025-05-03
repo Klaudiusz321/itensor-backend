@@ -9,8 +9,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST, require_GET
 import traceback
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from .models import Tensor
 from .serializers import TensorSerializer
+from .symbolics import compute_symbolic
 
 # Poprawię ścieżkę importu - mogą być literówki w nazwie katalogów
 try:
@@ -613,3 +616,19 @@ class TensorViewSet(ModelViewSet):
     queryset = Tensor.objects.all()
     serializer_class = TensorSerializer
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    
+    @action(detail=False, methods=['post'], url_path='symbolic')
+    def symbolic(self, request):
+        data = request.data
+        # Validate
+        for key in ('dimension','coordinates','metric','evaluation_point'):
+            if key not in data:
+                return Response({'error': f'Missing field: {key}'}, status=400)
+
+        result = compute_symbolic(
+            dimension=data['dimension'],
+            coords=data['coordinates'],
+            metric=data['metric'],
+            evaluation_point=data['evaluation_point']
+        )
+        return Response(result)
