@@ -1,7 +1,7 @@
 import logging
 import sympy as sp
 import traceback
-from myproject.utils.symbolic.compute_tensor import oblicz_tensory
+from myproject.utils.symbolic.compute_tensor import oblicz_tensory, compute_einstein_tensor
 from myproject.utils.symbolic.simplification.custom_simplify import custom_simplify
 
 logger = logging.getLogger(__name__)
@@ -86,11 +86,15 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
         # Compute tensor quantities
         g, Gamma, R_abcd, Ricci, Scalar_Curvature = oblicz_tensory(coord_symbols, metric_dict)
         
+        # Compute Einstein tensor
+        g_inv = g.inv()
+        G_upper, G_lower = compute_einstein_tensor(Ricci, Scalar_Curvature, g, g_inv, dimension)
+        
         # Format results
         n = dimension
         
-        # Format Christoffel symbols
-        christoffel_components = {}
+        # Format Christoffel symbols in the format expected by frontend
+        christoffel_symbols = []
         for a in range(n):
             for b in range(n):
                 for c in range(n):
@@ -98,10 +102,13 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
                     if value != 0:
                         simplified = custom_simplify(value)
                         if simplified != 0:
-                            christoffel_components[f"{a}_{{{b}{c}}}"] = str(simplified)
+                            christoffel_symbols.append({
+                                "indices": f"{a}_{{{b}{c}}}",
+                                "value": str(simplified)
+                            })
         
         # Format Riemann tensor components
-        riemann_components = {}
+        riemann_tensor = []
         for i in range(n):
             for j in range(n):
                 for k in range(n):
@@ -110,17 +117,39 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
                         if value != 0:
                             simplified = custom_simplify(value)
                             if simplified != 0:
-                                riemann_components[f"R_{{{i}{j}{k}{l}}}"] = str(simplified)
+                                riemann_tensor.append({
+                                    "indices": f"R_{{{i}{j}{k}{l}}}",
+                                    "value": str(simplified)
+                                })
         
         # Format Ricci tensor components
-        ricci_components = {}
+        ricci_tensor = []
         for i in range(n):
             for j in range(n):
                 value = Ricci[i, j]
                 if value != 0:
                     simplified = custom_simplify(value)
                     if simplified != 0:
-                        ricci_components[f"R_{{{i}{j}}}"] = str(simplified)
+                        ricci_tensor.append({
+                            "indices": f"R_{{{i}{j}}}",
+                            "value": str(simplified)
+                        })
+        
+        # Format Einstein tensor components
+        einstein_tensor = []
+        for i in range(n):
+            for j in range(n):
+                value = G_lower[i, j]
+                if value != 0:
+                    simplified = custom_simplify(value)
+                    if simplified != 0:
+                        einstein_tensor.append({
+                            "indices": f"G_{{{i}{j}}}",
+                            "value": str(simplified)
+                        })
+        
+        # Format Weyl tensor (placeholder - would need to implement actual calculation)
+        weyl_tensor = []
         
         # Evaluate at a specific point if provided
         evaluated_results = None
@@ -132,52 +161,37 @@ def compute_symbolic(dimension, coords, metric, evaluation_point=None):
                         symbol = sp.Symbol(coord)
                         substitutions[symbol] = value
                 
-                # Evaluate tensor components at the specified point
-                evaluated_results = {
-                    "christoffel": {},
-                    "riemann": {},
-                    "ricci": {},
-                    "scalar_curvature": None
-                }
-                
-                # Evaluate Christoffel symbols
-                for key, expr_str in christoffel_components.items():
-                    expr = sp.sympify(expr_str)
-                    evaluated = expr.subs(substitutions)
-                    if evaluated != 0:
-                        evaluated_results["christoffel"][key] = float(evaluated)
-                
-                # Evaluate Riemann tensor
-                for key, expr_str in riemann_components.items():
-                    expr = sp.sympify(expr_str)
-                    evaluated = expr.subs(substitutions)
-                    if evaluated != 0:
-                        evaluated_results["riemann"][key] = float(evaluated)
-                
-                # Evaluate Ricci tensor
-                for key, expr_str in ricci_components.items():
-                    expr = sp.sympify(expr_str)
-                    evaluated = expr.subs(substitutions)
-                    if evaluated != 0:
-                        evaluated_results["ricci"][key] = float(evaluated)
-                
                 # Evaluate scalar curvature
                 evaluated_scalar = Scalar_Curvature.subs(substitutions)
-                evaluated_results["scalar_curvature"] = float(evaluated_scalar)
+                evaluated_results = {
+                    "evaluationPoint": evaluation_point,
+                    "scalarCurvature": float(evaluated_scalar)
+                }
             except Exception as e:
                 logger.error(f"Error evaluating at point: {str(e)}")
                 evaluated_results = {"error": f"Error evaluating at point: {str(e)}"}
         
-        # Prepare the final result
+        # Prepare the final result in the format expected by the frontend
         result = {
             "success": True,
-            "dimension": dimension,
             "coordinates": coords,
-            "tensors": {
-                "christoffel": christoffel_components,
-                "riemann": riemann_components,
-                "ricci": ricci_components,
-                "scalar_curvature": str(Scalar_Curvature)
+            "dimension": dimension,
+            "christoffelSymbols": christoffel_symbols,
+            "riemannTensor": riemann_tensor,
+            "ricciTensor": ricci_tensor,
+            "scalarCurvature": str(Scalar_Curvature),
+            "einsteinTensor": einstein_tensor,
+            "weylTensor": weyl_tensor,
+            "rawData": {
+                "dimension": dimension,
+                "coordinates": coords,
+                "tensors": {
+                    "christoffel": christoffel_symbols,
+                    "riemann": riemann_tensor,
+                    "ricci": ricci_tensor,
+                    "scalar_curvature": str(Scalar_Curvature),
+                    "einstein": einstein_tensor
+                }
             }
         }
         
