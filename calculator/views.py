@@ -14,6 +14,8 @@ from rest_framework.response import Response
 from .models import Tensor
 from .serializers import TensorSerializer
 from .symbolics import compute_symbolic
+from datetime import datetime
+from rest_framework import status
 
 # Poprawię ścieżkę importu - mogą być literówki w nazwie katalogów
 try:
@@ -616,6 +618,40 @@ class TensorViewSet(ModelViewSet):
     queryset = Tensor.objects.all()
     serializer_class = TensorSerializer
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Custom create method with error handling
+        """
+        try:
+            # Set default values for any missing fields
+            data = request.data.copy()
+            
+            # Ensure metric_hash is generated if coordinates and metric are provided
+            if 'coordinates' in data and 'metric_data' in data and 'dimension' in data:
+                data['metric_hash'] = Tensor.generate_metric_hash(
+                    data['dimension'],
+                    data['coordinates'],
+                    data['metric_data']
+                )
+            
+            # Set default name if not provided
+            if not data.get('name'):
+                data['name'] = f"Tensor created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
+        except Exception as e:
+            logger.error(f"Error creating tensor: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response(
+                {"error": f"Error creating tensor: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     @action(detail=False, methods=['post'], url_path='symbolic')
     def symbolic(self, request):
