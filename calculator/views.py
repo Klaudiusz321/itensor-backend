@@ -641,14 +641,22 @@ class TensorViewSet(ModelViewSet):
 
         # 1) If this is a “fake” automatic save shortcut, just echo back:
         if data.get('name', '').startswith('Automatic Symbolic Calculation'):
-            return Response({
-                'id': None,
-                'name': data['name'],
-                'description': data.get('description', ''),
-                'created_at': datetime.now().isoformat(),
-                'success': True,
-                'message': 'Calculation saved (non-persistent)'
-            }, status=status.HTTP_200_OK)
+         return Response({
+            'id': 999,
+            'name': data['name'],
+            'description': data.get('description', ''),
+            'created_at': datetime.now().isoformat(),
+            'success': True,
+            # DODAJEMY TUTAJ
+            'dimension': data.get('dimension'),
+            'coordinates': data.get('coordinates'),
+            'metric_data': data.get('metric_data'),
+            'christoffel_symbols': data.get('christoffel_symbols', []),
+            'riemann_tensor': data.get('riemann_tensor', []),
+            'ricci_tensor': data.get('ricci_tensor', []),
+            'scalar_curvature': data.get('scalar_curvature'),
+            'einstein_tensor': data.get('einstein_tensor', []),
+        }, status=status.HTTP_201_CREATED)
 
         # 2) Compute metric_hash if we have dimension, coords & metric_data:
         hash_fields = ('dimension', 'coordinates', 'metric_data')
