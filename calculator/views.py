@@ -716,25 +716,26 @@ class TensorViewSet(ModelViewSet):
         return Response(result)
     @action(detail=False, methods=['post'], url_path='find-similar')
     def find_similar(self, request):
-        # 1) Grab the inputs your front end sent
+        # 1) Pull in the three required fields
         dimension      = request.data.get('dimension')
         coordinates    = request.data.get('coordinates')
         metric_payload = request.data.get('metric') or request.data.get('metric_data')
 
+        # 2) Validate
         if not (dimension and coordinates and metric_payload):
             return Response(
                 {'error': 'Must supply dimension, coordinates and metric'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 2) Recompute the hash exactly as in your model
+        # 3) Compute the same hash you’d use for caching
         metric_hash = Tensor.generate_metric_hash(
             dimension,
             coordinates,
             metric_payload
         )
 
-        # 3) Look for an existing tensor with that hash
+        # 4) Look for an existing Tensor with that hash
         existing = Tensor.objects.filter(metric_hash=metric_hash).first()
         if existing:
             serializer = self.get_serializer(existing)
@@ -743,7 +744,5 @@ class TensorViewSet(ModelViewSet):
                 status=status.HTTP_200_OK
             )
 
-        # 4) No match, let the front end know to go ahead and create
+        # 5) Not found → tell the front end to go ahead and create
         return Response({'found': False}, status=status.HTTP_200_OK)
-    
-   
