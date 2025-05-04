@@ -639,54 +639,53 @@ class TensorViewSet(ModelViewSet):
     def create(self, request, *args, **kwargs):
         data = request.data.copy()
 
-        # 1) Shortcut for “automatic symbolic” (non-persistent) saves:
+        # 1) If this is a “fake” automatic save shortcut, just echo back:
         if data.get('name', '').startswith('Automatic Symbolic Calculation'):
             return Response({
-                'id': 999,
+                'id': None,
                 'name': data['name'],
                 'description': data.get('description', ''),
                 'created_at': datetime.now().isoformat(),
                 'success': True,
                 'message': 'Calculation saved (non-persistent)'
-            }, status=status.HTTP_201_CREATED)
+            }, status=status.HTTP_200_OK)
 
-        # 2) Compute metric_hash if we have all the pieces:
-        hash_inputs = ('dimension', 'coordinates', 'metric_data')
-        if all(key in data for key in hash_inputs):
+        # 2) Compute metric_hash if we have dimension, coords & metric_data:
+        hash_fields = ('dimension', 'coordinates', 'metric_data')
+        if all(field in data for field in hash_fields):
             data['metric_hash'] = Tensor.generate_metric_hash(
                 data['dimension'],
                 data['coordinates'],
                 data['metric_data']
             )
 
-        # 3) Attempt to get_or_create on that hash:
-        #    - if it exists, return HTTP 200 with that instance
-        #    - if not, create it and return HTTP 201
+        # 3) Build defaults for new creation:
         defaults = {
-            'name':        data.get('name', f"Tensor @ {datetime.now()}"),
-            'components':  data.get('components', {}),
-            'description': data.get('description', ''),
-            # extended fields if present:
-            'dimension':          data.get('dimension'),
-            'coordinates':        data.get('coordinates'),
-            'metric_data':        data.get('metric_data'),
-            'christoffel_symbols': data.get('christoffel_symbols', []),
-            'riemann_tensor':     data.get('riemann_tensor', []),
-            'ricci_tensor':       data.get('ricci_tensor', []),
-            'scalar_curvature':   data.get('scalar_curvature'),
-            'einstein_tensor':    data.get('einstein_tensor', []),
+            'name':                 data.get('name', f"Tensor @ {datetime.now()}"),
+            'components':           data.get('components', {}),
+            'description':          data.get('description', ''),
+
+            # caching fields
+            'dimension':            data.get('dimension'),
+            'coordinates':          data.get('coordinates'),
+            'metric_data':          data.get('metric_data'),
+            'christoffel_symbols':  data.get('christoffel_symbols', []),
+            'riemann_tensor':       data.get('riemann_tensor', []),
+            'ricci_tensor':         data.get('ricci_tensor', []),
+            'scalar_curvature':     data.get('scalar_curvature'),
+            'einstein_tensor':      data.get('einstein_tensor', []),
         }
 
+        # 4) Try to find an existing record by metric_hash, otherwise create:
         tensor, created = Tensor.objects.get_or_create(
             metric_hash=data.get('metric_hash'),
             defaults=defaults
         )
 
+        # 5) Serialize and return 200 if existed, 201 if new:
         serializer = self.get_serializer(tensor)
-        return Response(
-            serializer.data,
-            status=(status.HTTP_201_CREATED if created else status.HTTP_200_OK)
-        )
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(serializer.data, status=status_code)
 
 
     @action(detail=False, methods=['post'], url_path='symbolic')
