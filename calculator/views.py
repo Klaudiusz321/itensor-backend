@@ -619,101 +619,87 @@ class TensorViewSet(ModelViewSet):
     serializer_class = TensorSerializer
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     
+class TensorViewSet(ModelViewSet):
+    """
+    ViewSet for CRUD on Tensor:
+      • GET    /api/tensors/           → list
+      • POST   /api/tensors/           → create (with de-duplication)
+      • GET    /api/tensors/{id}/      → retrieve
+      • PUT    /api/tensors/{id}/      → update
+      • PATCH  /api/tensors/{id}/      → partial_update
+      • DELETE /api/tensors/{id}/      → destroy
+
+    Plus:
+      • POST   /api/tensors/symbolic/  → compute symbolic (no persistence)
+    """
+    queryset = Tensor.objects.all()
+    serializer_class = TensorSerializer
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
     def create(self, request, *args, **kwargs):
-        """
-        Custom create method with error handling
-        """
-        try:
-            # For frontend compatibility, always return a success response
-            # Check for automatic symbolic calculation requests (from frontend save)
-            if request.data.get('name', '').startswith('Automatic Symbolic Calculation'):
-                # Just return a fake success response with an ID
-                return Response({
-                    'id': 999,
-                    'name': request.data.get('name', 'Saved calculation'),
-                    'description': request.data.get('description', ''),
-                    'created_at': datetime.now().isoformat(),
-                    'success': True,
-                    'message': 'Calculation saved (non-persistent)'
-                }, status=status.HTTP_201_CREATED)
-                
-            # Set default values for any missing fields
-            data = request.data.copy()
-            
-            # Ensure that only valid fields are included
-            # This prevents errors with fields that might not exist in the database yet
-            basic_fields = ['name', 'components', 'description']
-            filtered_data = {}
-            
-            # Always include basic fields
-            for field in basic_fields:
-                if field in data:
-                    filtered_data[field] = data[field]
-            
-            # Set default name if not provided
-            if not filtered_data.get('name'):
-                filtered_data['name'] = f"Tensor created on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                
-            # Set default components if empty
-            if not filtered_data.get('components'):
-                filtered_data['components'] = {}
-                
-            # Try to include extended fields only if they're supported
-            try:
-                # Try to see if the model has these fields by checking the first object
-                sample = Tensor.objects.first()
-                if sample and hasattr(sample, 'metric_hash'):
-                    # Model supports caching fields, include them
-                    extended_fields = [
-                        'metric_hash', 'dimension', 'coordinates', 'metric_data',
-                        'christoffel_symbols', 'riemann_tensor', 'ricci_tensor',
-                        'scalar_curvature', 'einstein_tensor'
-                    ]
-                    
-                    for field in extended_fields:
-                        if field in data:
-                            filtered_data[field] = data[field]
-                    
-                    # Generate metric_hash if needed
-                    if ('coordinates' in filtered_data and 'metric_data' in filtered_data
-                            and 'dimension' in filtered_data and 'metric_hash' not in filtered_data):
-                        filtered_data['metric_hash'] = Tensor.generate_metric_hash(
-                            filtered_data['dimension'],
-                            filtered_data['coordinates'],
-                            filtered_data['metric_data']
-                        )
-            except Exception as e:
-                # If error occurs, just continue with basic fields
-                logger.warning(f"Error checking for extended fields: {str(e)}")
-            
-            # Create serializer with filtered data
-            serializer = self.get_serializer(data=filtered_data)
-            serializer.is_valid(raise_exception=True)
-            self.perform_create(serializer)
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-        
-        except Exception as e:
-            logger.error(f"Error creating tensor: {str(e)}")
-            logger.error(traceback.format_exc())
-            return Response(
-                {"error": f"Error creating tensor: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        data = request.data.copy()
+
+        # 1) Shortcut for “automatic symbolic” (non-persistent) saves:
+        if data.get('name', '').startswith('Automatic Symbolic Calculation'):
+            return Response({
+                'id': 999,
+                'name': data['name'],
+                'description': data.get('description', ''),
+                'created_at': datetime.now().isoformat(),
+                'success': True,
+                'message': 'Calculation saved (non-persistent)'
+            }, status=status.HTTP_201_CREATED)
+
+        # 2) Compute metric_hash if we have all the pieces:
+        hash_inputs = ('dimension', 'coordinates', 'metric_data')
+        if all(key in data for key in hash_inputs):
+            data['metric_hash'] = Tensor.generate_metric_hash(
+                data['dimension'],
+                data['coordinates'],
+                data['metric_data']
             )
-    
+
+        # 3) Attempt to get_or_create on that hash:
+        #    - if it exists, return HTTP 200 with that instance
+        #    - if not, create it and return HTTP 201
+        defaults = {
+            'name':        data.get('name', f"Tensor @ {datetime.now()}"),
+            'components':  data.get('components', {}),
+            'description': data.get('description', ''),
+            # extended fields if present:
+            'dimension':          data.get('dimension'),
+            'coordinates':        data.get('coordinates'),
+            'metric_data':        data.get('metric_data'),
+            'christoffel_symbols': data.get('christoffel_symbols', []),
+            'riemann_tensor':     data.get('riemann_tensor', []),
+            'ricci_tensor':       data.get('ricci_tensor', []),
+            'scalar_curvature':   data.get('scalar_curvature'),
+            'einstein_tensor':    data.get('einstein_tensor', []),
+        }
+
+        tensor, created = Tensor.objects.get_or_create(
+            metric_hash=data.get('metric_hash'),
+            defaults=defaults
+        )
+
+        serializer = self.get_serializer(tensor)
+        return Response(
+            serializer.data,
+            status=(status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        )
+
+
     @action(detail=False, methods=['post'], url_path='symbolic')
     def symbolic(self, request):
+        # exactly as before: validate, compute, return
         data = request.data
-        # Validate required fields
-        required_fields = ('dimension', 'coordinates', 'metric')
-        missing_fields = [field for field in required_fields if field not in data]
-        
-        if missing_fields:
-            return Response({
-                'error': f"Missing required fields: {', '.join(missing_fields)}"
-            }, status=400)
+        missing = [f for f in ('dimension','coordinates','metric') if f not in data]
+        if missing:
+            return Response(
+                {'error': f"Missing: {', '.join(missing)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # Use empty dict as default for evaluation_point if not provided
         result = compute_symbolic(
             dimension=data['dimension'],
             coords=data['coordinates'],
@@ -721,3 +707,5 @@ class TensorViewSet(ModelViewSet):
             evaluation_point=data.get('evaluation_point', {})
         )
         return Response(result)
+    
+   

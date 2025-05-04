@@ -19,6 +19,18 @@ class Tensor(models.Model):
     ricci_tensor = models.JSONField(default=list, blank=True, null=True)
     scalar_curvature = models.CharField(max_length=255, blank=True, null=True)
     einstein_tensor = models.JSONField(default=list, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        # build a stable JSON from dimension, coordinates and metric_data
+        payload = {
+            'dimension': self.dimension,
+            'coordinates': self.coordinates or [],
+            'metric': self.metric_data or []
+        }
+        # compute hash
+        json_string = json.dumps(payload, sort_keys=True)
+        self.metric_hash = hashlib.sha256(json_string.encode('utf-8')).hexdigest()
+        super().save(*args, **kwargs)
     
     @staticmethod
     def generate_metric_hash(dimension, coordinates, metric_data):
