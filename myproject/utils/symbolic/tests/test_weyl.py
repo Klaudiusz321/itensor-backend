@@ -1,7 +1,7 @@
 import unittest
 import sympy as sp
-from symbolic.compute_tensor import ComputeTensor
-from symbolic.weyl import ComputeWeylTensor
+from myproject.utils.symbolic.compute_tensor import ComputeTensor
+from myproject.utils.symbolic.weyl import ComputeWeylTensor
 
 class TestComputeWeylTensor(unittest.TestCase):
     

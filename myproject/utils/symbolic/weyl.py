@@ -1,6 +1,6 @@
 import logging
 import sympy as sp
-from utils.symbolic.simplification.custom_simplify import weyl_simplify
+from myproject.utils.symbolic.simplification.custom_simplify import weyl_simplify
 from .compute_tensor import ComputeTensor
 
 logger = logging.getLogger(__name__)
