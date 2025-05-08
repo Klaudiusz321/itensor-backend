@@ -1,6 +1,6 @@
 import sympy as sp
 import numpy as np
-from .simplification import custom_simplify
+from ..simplification.custom_simplify import custom_simplify
 import logging
 
 def generate_output(g, Gamma, R_abcd, Ricci, Scalar_Curvature, G_upper, G_lower, n, Weyl=None):
