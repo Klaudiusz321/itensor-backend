@@ -12,18 +12,7 @@ class PraseMetric:
     
 
     def wczytaj_metryke_z_tekstu(self):
-        """
-        Wczytuje metrykę z tekstu w formacie:
-        x, y, z;
-        0 0 -1
-        1 1 r**2
-        ...
         
-        Zwraca:
-        - listę współrzędnych
-        - słownik z elementami metryki w formacie (i,j) -> wartość
-        - słownik z oryginalnymi wyrażeniami tekstowymi
-        """
         lines = self.metric_text.strip().split('\n')
         if not lines:
             logger.error("Pusty tekst metryki")

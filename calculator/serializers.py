@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import Tensor
+import numpy as np
 
 class TensorSerializer(serializers.ModelSerializer):
     # Make all extended fields optional by explicitly declaring them
@@ -22,7 +23,9 @@ class TensorSerializer(serializers.ModelSerializer):
             'scalar_curvature', 'einstein_tensor'
         ]
         read_only_fields = ['created_at']
-        
+    
+    
+    
     def validate(self, data):
         """
         Custom validation to handle missing columns in the database
@@ -37,3 +40,4 @@ class TensorSerializer(serializers.ModelSerializer):
                 filtered_data[field_name] = value
         
         return filtered_data 
+    

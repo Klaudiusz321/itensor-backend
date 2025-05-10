@@ -1,4 +1,4 @@
-from utils.symbolic.simplification.custom_simplify import custom_simplify
+from myproject.utils.symbolic.simplification.custom_simplify import custom_simplify
 import sympy as sp
 import logging
 

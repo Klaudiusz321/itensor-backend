@@ -7,6 +7,15 @@ import sys
 def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+    
+    # Force Django to initialize apps early
+    try:
+        # This block ensures Django's app registry is populated before attempting to run commands
+        import django
+        django.setup()
+    except Exception as e:
+        print(f"Failed to initialize Django: {e}")
+        
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

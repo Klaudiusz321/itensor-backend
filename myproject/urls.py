@@ -1,55 +1,59 @@
-from django.contrib import admin
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from calculator.views import (
-    calculate_view, health_check, calculate_flrw_view, TensorViewSet
-)
-from calculator.numerical_views import numerical_calculate_view
-from calculator.symbolic_views import symbolic_calculation_view
-from myproject.api.views import differential_operators, mhd_simulation, mhd_snapshot, mhd_field_plots
-import logging
+# myproject/urls.py
 
-# Setup debug logging for URLs
+from django.contrib import admin
+from django.urls import path
+from rest_framework.routers import DefaultRouter
+import logging
+from django.urls import path, include
+# DRF ViewSet dla /api/tensors/
+from calculator.views.tensor_viewset import TensorViewSet
+
+# „Klejone" widoki
+from calculator.views.views import (
+    health_check,
+    differential_operators,
+    numerical_calculate_view,
+    symbolic_calculate_view
+)
+from calculator.views.mhd.mhd import (
+    mhd_simulation,
+    mhd_snapshot,
+    mhd_field_plots
+)
+
 logger = logging.getLogger(__name__)
 
-# Setup DRF router
+# --- DRF router ---
 router = DefaultRouter()
 router.register(r'tensors', TensorViewSet)
 
-# Define all URL patterns for the tensor calculator API
-# Note: We maintain both 'numerical' and 'numeric' endpoints for backward compatibility
-# 'numerical' is the primary endpoint, 'numeric' is an alias that some frontend components may use
 urlpatterns = [
+    # panel administracyjny
     path('admin/', admin.site.urls),
+
+    # wszystkie endpointy DRF dla TensorViewSet:
+    # GET/POST /api/tensors/  etc.
+   
     path('api/', include(router.urls)),
-    path('api/calculate/', calculate_view),
-    path('api/calculate', calculate_view),
-    path('api/tensors/numerical/', numerical_calculate_view, name='numerical_calculation'),
-    path('api/tensors/numerical', numerical_calculate_view, name='numerical_calculation_no_slash'),
-    path('api/tensors/numeric/', numerical_calculate_view, name='numerical_calculation_alias'),  # Alias for common misspelling
-    path('api/tensors/numeric', numerical_calculate_view, name='numerical_calculation_alias_no_slash'),  # Alias without trailing slash
-    path('api/tensors/symbolic/', symbolic_calculation_view, name='symbolic_calculation'),
-    path('api/tensors/symbolic', symbolic_calculation_view, name='symbolic_calculation_no_slash'),
-    path('api/tensors/flrw/', calculate_flrw_view, name='flrw_calculation'),
-    path('api/tensors/flrw', calculate_flrw_view, name='flrw_calculation_no_slash'),
-    path('api/health/', health_check, name='health_check'),
-    
-    # Direct URL for differential operators
-    path('api/differential-operators/', differential_operators, name='differential_operators'),
-    path('differential-operators/', differential_operators, name='differential_operators_no_prefix'),
-    
-    # MHD API endpoints
-    path('api/mhd/simulation/', mhd_simulation, name='mhd_simulation'),
-    path('api/mhd/snapshot/', mhd_snapshot, name='mhd_snapshot'),
-    path('api/mhd/field-plots/', mhd_field_plots, name='mhd_field_plots'),
-    
-    # Include calculator app URLs
-    path('', include('calculator.urls')),
+    # proste endpointy „funkcyjne"
+    path('api/health/',                health_check,            name='health_check'),
+    path('api/tensors/numerical/',     numerical_calculate_view, name='numerical_calculation'),
+    path('api/tensors/numeric/',       numerical_calculate_view, name='numerical_calculation_alias'),
+    path('api/tensors/symbolic/',      symbolic_calculate_view, name='symbolic_calculation'),
+    path('api/differential-operators/', differential_operators,   name='differential_operators'),
+
+    # MHD
+    path('api/mhd/simulation/',    mhd_simulation,   name='mhd_simulation'),
+    path('api/mhd/snapshot/',      mhd_snapshot,     name='mhd_snapshot'),
+    path('api/mhd/field-plots/',   mhd_field_plots,  name='mhd_field_plots'),
+
+    # Add a route for find-similar endpoint
+    path('api/tensors/find-similar/', TensorViewSet.as_view({'post': 'find_similar'}), name='find_similar'),
 ]
 
-# Debug print all registered URLs
-for url_pattern in urlpatterns:
-    if hasattr(url_pattern, 'pattern'):
-        logger.info(f"Registered URL: {url_pattern.pattern}")
-    else:
-        logger.info(f"Registered URL (include): {url_pattern}")
+# Debug: wypisz wszystkie zarejestrowane ścieżki
+for entry in urlpatterns:
+    try:
+        logger.info(f"URL: {entry.pattern}")
+    except Exception:
+        logger.info(f"Include/Router entry: {entry}")
