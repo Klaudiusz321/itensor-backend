@@ -1,6 +1,7 @@
 # calculator/views/tensor_viewset.py
 
 from datetime import datetime
+import json
 import logging
 
 import numpy as np
@@ -9,16 +10,14 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
-import json
-from calculator.views.views import differential_operators as diff_ops_view
+
 from calculator.models import Tensor
 from calculator.serializers import TensorSerializer
 from calculator.symbolics import compute_symbolic
-from calculator.views.views import differential_operators
+from calculator.views.views import differential_operators as diff_ops_view
 from myproject.utils.numerical.core import NumericTensorCalculator
 
 logger = logging.getLogger(__name__)
-
 
 class TensorViewSet(ModelViewSet):
     queryset = Tensor.objects.all()
@@ -27,65 +26,65 @@ class TensorViewSet(ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='find-similar')
     def find_similar(self, request):
-        data = request.data
-        # Akceptujemy zarówno 'metric' jak i 'metric_data'
+        data   = request.data
         metric = data.get('metric_data') or data.get('metric')
-        missing = [f for f in ('dimension', 'coordinates',) if f not in data] + ([] if metric is not None else ['metric_data/metric'])
+        missing = [f for f in ('dimension','coordinates') if f not in data]
+        if metric is None:
+            missing.append('metric_data/metric')
         if missing:
             return Response({'success': False, 'error': f"Missing fields: {', '.join(missing)}"},
                             status=status.HTTP_400_BAD_REQUEST)
 
         existing = Tensor.objects.filter(
-            dimension=data['dimension'],
-            coordinates=data['coordinates'],
-            metric_data=metric,
+            dimension    = data['dimension'],
+            coordinates  = data['coordinates'],
+            metric_data  = metric,
         ).first()
+
         if existing:
-            return Response({'success': True, 'found': True, 'tensor': TensorSerializer(existing).data})
-        return Response({'success': True, 'found': False})
+            return Response({
+                'success': True,
+                'found':   True,
+                'tensor':  TensorSerializer(existing).data
+            }, status=status.HTTP_200_OK)
+
+        return Response({'success': True, 'found': False}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'], url_path='symbolic')
     def symbolic(self, request):
-        data = request.data
+        data   = request.data
+        dim    = data.get('dimension')
+        coords = data.get('coordinates')
+        metric = data.get('metric')
 
-        # 0) Cache hit?
+        # 0) cache hit?
         existing = Tensor.objects.filter(
-            dimension    = data.get('dimension'),
-            coordinates  = data.get('coordinates'),
-            metric_data  = data.get('metric'),
-            computation  = 'symbolic'  # jeśli masz pole computation
+            dimension   = dim,
+            coordinates = coords,
+            metric_data = metric,
+            # jeśli masz pole 'computation', możesz je tu sprawdzić
         ).first()
         if existing:
-            # zwracamy zapisane components + id
             return Response({
                 **existing.components,
                 'tensor_id': existing.id,
-                'cached': True,
-                'success': True
+                'cached':    True,
+                'success':   True
             }, status=status.HTTP_200_OK)
 
-        # 1) Walidacja
-        missing = [f for f in ('dimension', 'coordinates', 'metric') if f not in data]
+        # 1) validate
+        missing = [f for f in ('dimension','coordinates','metric') if data.get(f) is None]
         if missing:
-            return Response(
-                {'success': False, 'error': f"Missing fields: {', '.join(missing)}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'success': False, 'error': f"Missing fields: {', '.join(missing)}"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        dim    = data['dimension']
-        coords = data['coordinates']
-        metric = data['metric']
-        eval_pt = data.get('evaluation_point') \
-               or data.get('evaluationPoint') \
-               or [0]*dim
+        eval_pt = data.get('evaluation_point') or data.get('evaluationPoint') or [0]*dim
+        if not isinstance(eval_pt, (list,tuple)) or len(eval_pt)!=dim:
+            return Response({'success': False,
+                             'error': f"evaluation_point must be list of length {dim}"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        if not isinstance(eval_pt, (list, tuple)) or len(eval_pt) != dim:
-            return Response(
-                {'success': False, 'error': f"evaluation_point must be a list of length {dim}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 2) Wykonanie obliczeń
+        # 2) compute
         try:
             result = compute_symbolic(
                 dimension        = dim,
@@ -95,121 +94,129 @@ class TensorViewSet(ModelViewSet):
             )
         except Exception as e:
             logger.error("Symbolic calculation error", exc_info=True)
-            return Response(
-                {'success': False, 'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({'success':False,'error':str(e)},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # 3) Zapis do bazy
+        # 3) save
         try:
             tensor = Tensor.objects.create(
-                name          = f"Symbolic @ {datetime.now().isoformat()}",
-                description   = data.get('description', ''),
-                dimension     = dim,
-                coordinates   = coords,
-                metric_data   = metric,
-                components    = result,
-                computation   = 'symbolic'
+                name         = f"Symbolic @ {datetime.now().isoformat()}",
+                description  = data.get('description',''),
+                dimension    = dim,
+                coordinates  = coords,
+                metric_data  = metric,
+                components   = result,
             )
             tensor_id = tensor.id
         except Exception as db_err:
-            logger.error("Failed to save symbolic Tensor: %s", db_err, exc_info=True)
+            logger.error("Failed to save symbolic Tensor", exc_info=True)
             tensor_id = None
             result['db_save_error'] = str(db_err)
 
-        # 4) Zwracamy wynik
+        # 4) return
         return Response({
             **result,
             'tensor_id': tensor_id,
-            'cached': False,
-            'success': True
+            'cached':    False,
+            'success':   True
         }, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='numerical')
     def numerical(self, request):
-        data = request.data
+        data   = request.data
+        dim    = data.get('dimension')
+        coords = data.get('coordinates')
+        metric = data.get('metric')
+
+        # 0) cache hit?
         existing = Tensor.objects.filter(
-            dimension=data.get('dimension'),
-            coordinates=data.get('coordinates'),
-            metric_data=data.get('metric'),
+            dimension    = dim,
+            coordinates  = coords,
+            metric_data  = metric,
         ).first()
         if existing:
-            serializer = self.get_serializer(existing)
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(TensorSerializer(existing).data, status=status.HTTP_200_OK)
 
-        missing = [f for f in ('dimension', 'coordinates', 'metric') if f not in data]
+        # 1) validate
+        missing = [f for f in ('dimension','coordinates','metric') if data.get(f) is None]
         if missing:
-            return Response({'success': False, 'error': f"Missing fields: {', '.join(missing)}"},
+            return Response({'success':False,'error':f"Missing fields: {', '.join(missing)}"},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        n       = data['dimension']
-        coords  = data['coordinates']
-        metric  = data['metric']
-        eval_pt = data.get('evaluation_point') or data.get('evaluationPoint') or [0.0]*n
-        if len(eval_pt) != n:
-            return Response({'success': False, 'error': f"evaluation_point must be length {n}"},
+        eval_pt = data.get('evaluation_point') or data.get('evaluationPoint') or [0.0]*dim
+        if not isinstance(eval_pt,(list,tuple)) or len(eval_pt)!=dim:
+            return Response({'success':False,'error':f"evaluation_point must be length {dim}"},
                             status=status.HTTP_400_BAD_REQUEST)
         eval_pt = list(map(float, eval_pt))
 
-        # Parsujemy metric przez Sympy → g_func
+        # 2) build g_func via Sympy
         coord_syms = sympy.symbols(coords)
         sym_locals = dict(zip(coords, coord_syms))
         exprs = [
-            [sympy.sympify(entry, locals=sym_locals) if isinstance(entry, str) else sympy.sympify(entry)
-             for entry in row]
+            [ sympy.sympify(entry, locals=sym_locals)
+              if isinstance(entry,str)
+              else sympy.sympify(entry)
+              for entry in row ]
             for row in metric
         ]
         f_metric = sympy.lambdify(coord_syms, exprs, modules=["numpy"])
         def g_func(x_arr):
             return np.array(f_metric(*x_arr), dtype=float)
 
-        # Sprawdzamy, czy metryka nie jest osobliwa
+        # 3) check singularity
         try:
             eig = np.linalg.eigvals(g_func(np.array(eval_pt)))
-            if np.any(np.isclose(eig, 0.0, atol=1e-12)):
-                return Response({'success': False,
-                                 'error': f"Metric is singular at {eval_pt}. Eigenvalues: {eig.tolist()}"},
+            if np.any(np.isclose(eig,0.0,atol=1e-12)):
+                return Response({'success':False,
+                                 'error':f"Metric singular at {eval_pt}. Eigenvalues: {eig.tolist()}"},
                                 status=status.HTTP_400_BAD_REQUEST)
         except Exception:
             pass
 
+        # 4) numeric
         try:
-            calc = NumericTensorCalculator(g_func, h=data.get('h', 1e-6))
+            calc    = NumericTensorCalculator(g_func, h=data.get('h',1e-6))
             results = calc.compute_all(np.array(eval_pt))
         except Exception as e:
             logger.error("NumericTensorCalculator error", exc_info=True)
-            return Response({'success': False, 'error': str(e)},
+            return Response({'success':False,'error':str(e)},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        # 5) prepare payload
         out = {
-            'success': True,
-            'dimension': n,
-            'coordinates': coords,
-            'evaluation_point': eval_pt,
-            'metric':         results['metric'].tolist(),
-            'inverse_metric': results['metric_inv'].tolist(),
-            'christoffelSymbols': results['christoffel'].tolist(),
-            'riemannTensor':      results['riemann_lower'].tolist(),
-            'ricciTensor':        results['ricci'].tolist(),
-            'scalarCurvature':    float(results['scalar']),
-            'einsteinTensor':     results['einstein_lower'].tolist(),
-            'weylTensor':         [],
+            'success':           True,
+            'dimension':         dim,
+            'coordinates':       coords,
+            'evaluation_point':  eval_pt,
+            'metric':            results['metric'].tolist(),
+            'inverse_metric':    results['metric_inv'].tolist(),
+            'christoffelSymbols':results['christoffel'].tolist(),
+            'riemannTensor':     results['riemann_lower'].tolist(),
+            'ricciTensor':       results['ricci'].tolist(),
+            'scalarCurvature':   float(results['scalar']),
+            'einsteinTensor':    results['einstein_lower'].tolist(),
+            'weylTensor':        [],  # jeżeli będziesz
         }
 
-        # zapis / deduplikacja
-       
-        tensor = Tensor.objects.create(
-            name=f"Numerical @ {datetime.now().isoformat()}",
-            dimension=n,
-            coordinates=coords,
-            metric_data=metric,
-            christoffel_symbols=out['christoffelSymbols'],
-            riemann_tensor=out['riemannTensor'],
-            ricci_tensor=out['ricciTensor'],
-            scalar_curvature=str(out['scalarCurvature']),
-            einstein_tensor=out['einsteinTensor'],
-        )
-        out['tensor_id'] = tensor.id
+        # 6) save
+        try:
+            tensor = Tensor.objects.create(
+                name             = f"Numerical @ {datetime.now().isoformat()}",
+                dimension        = dim,
+                coordinates      = coords,
+                metric_data      = metric,
+                christoffel_symbols = out['christoffelSymbols'],
+                riemann_tensor      = out['riemannTensor'],
+                ricci_tensor        = out['ricciTensor'],
+                scalar_curvature    = str(out['scalarCurvature']),
+                einstein_tensor     = out['einsteinTensor'],
+            )
+            out['tensor_id'] = tensor.id
+        except Exception as db_err:
+            logger.error("Failed saving numerical Tensor", exc_info=True)
+            out['tensor_id'] = None
+            out['db_save_error'] = str(db_err)
+
         return Response(out, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='differential-operators')
@@ -217,69 +224,49 @@ class TensorViewSet(ModelViewSet):
         data = request.data
         logger.info(f"Differential operators request: {data}")
 
-        # 0) Sprawdź, czy taki sam zestaw parametrów już gdzieś liczyliśmy:
+        # 0) cache hit?
         existing = Tensor.objects.filter(
-            dimension          = data.get('dimension'),
-            coordinates        = data.get('coordinates'),
-            metric_data        = data.get('metric'),
+            dimension    = data.get('dimension'),
+            coordinates  = data.get('coordinates'),
+            metric_data  = data.get('metric'),
             components__vector = data.get('vector_field'),
             components__scalar = data.get('scalar_field'),
-            computation        = 'differential_operators'
         ).first()
         if existing:
             return Response({
                 **existing.components,
                 'tensor_id': existing.id,
-                'cached': True,
-                'success': True
+                'cached':    True,
+                'success':   True
             }, status=status.HTTP_200_OK)
 
-        # 1) Walidacja wymaganych pól
-        missing = [f for f in (
-            'dimension',
-            'coordinates',
-            'metric',
-            'vector_field',
-            'scalar_field',
-            'selected_operators'
-        ) if f not in data]
-        if missing:
-            return Response(
-                {'success': False, 'error': f"Missing fields: {', '.join(missing)}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # 2) Przekaż obsługę do funkcji różniczkowej
-        #    ona zwraca Django JsonResponse
+        # 1) delegate to your function returning Django JsonResponse
         json_resp = diff_ops_view(request)
 
-        # 3) Przekonwertuj Django JsonResponse na DRF Response
+        # 2) parse
         try:
             payload = json.loads(json_resp.content)
         except Exception:
-            logger.error("Nie udało się sparsować odpowiedzi differential_operators", exc_info=True)
-            return Response(
-                {'success': False, 'error': 'Invalid response from differential_operators'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            logger.error("Failed to parse differential_operators response", exc_info=True)
+            return Response({'success':False,'error':'Invalid diff_ops response'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         if json_resp.status_code != 200:
             return Response(payload, status=json_resp.status_code)
 
-        # 4) Zapisz wynik w bazie
+        # 3) save
         try:
             tensor = Tensor.objects.create(
-                name         = f"Differential Ops @ {datetime.now().isoformat()}",
-                description  = data.get('description', ''),
-                dimension    = data['dimension'],
-                coordinates  = data['coordinates'],
-                metric_data  = data['metric'],
-                components   = payload,            # zapisujemy gradient/divergence/laplacian itp.
-                computation  = 'differential_operators'
+                name        = f"Differential Ops @ {datetime.now().isoformat()}",
+                description = data.get('description',''),
+                dimension   = data['dimension'],
+                coordinates = data['coordinates'],
+                metric_data = data['metric'],
+                components  = payload,
             )
             payload['tensor_id'] = tensor.id
         except Exception as db_err:
-            logger.error("Błąd zapisu differential_operators do DB", exc_info=True)
+            logger.error("Failed saving diff_ops Tensor", exc_info=True)
             payload['db_save_error'] = str(db_err)
 
         payload['cached'] = False
