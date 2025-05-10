@@ -7,6 +7,7 @@ import logging
 
 from calculator.views.tensor_viewset import TensorViewSet
 from calculator.views.views import health_check
+from calculator.views.views import differential_operators  # Import the direct view
 from calculator.views.mhd.mhd import (
     mhd_simulation,
     mhd_snapshot,
@@ -31,6 +32,9 @@ urlpatterns = [
     path('api/', include(router.urls)),
 
     path('api/health/', health_check, name='health_check'),
+    
+    # Add direct path for differential operators (old URL)
+    path('api/differential-operators/', differential_operators, name='differential_operators'),
 
     # MHD
     path('api/mhd/simulation/',  mhd_simulation,   name='mhd_simulation'),
