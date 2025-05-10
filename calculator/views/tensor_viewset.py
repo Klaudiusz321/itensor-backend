@@ -24,6 +24,62 @@ class TensorViewSet(ModelViewSet):
     serializer_class = TensorSerializer
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+
+        # 1) jeśli ktoś przesłał "metric" zamiast "metric_data"
+        if 'metric' in data and 'metric_data' not in data:
+            data['metric_data'] = data['metric']
+
+        # 2) jeżeli front wysłał "results": rozpakuj je do pól DB
+        #    (to są pola, których używa Twój defaults w nagłówku)
+        results = data.get('results')
+        if isinstance(results, dict):
+            # sam wynik zostawiamy w components
+            data['components'] = results
+            # a każdy element rozdzielamy do właściwych kolumn
+            data['christoffel_symbols'] = results.get('christoffelSymbols', [])
+            data['riemann_tensor']      = results.get('riemannTensor', [])
+            data['ricci_tensor']        = results.get('ricciTensor', [])
+            # scalar jako string
+            data['scalar_curvature']    = str(results.get('scalarCurvature', '')) 
+            data['einstein_tensor']     = results.get('einsteinTensor', [])
+            data['weyl_tensor']         = results.get('weylTensor', [])
+
+        # 3) oblicz hash po metric_data/coods/dimension
+        metric_hash = Tensor.generate_metric_hash(
+            data.get('dimension'),
+            data.get('coordinates'),
+            data.get('metric_data')
+        )
+        data['metric_hash'] = metric_hash
+
+        # 4) przygotuj "defaults" do get_or_create
+        defaults = {
+            'name':              data.get('name', f"Tensor @ {datetime.now().isoformat()}"),
+            'description':       data.get('description', ''),
+            'components':        data.get('components', {}),
+            'dimension':         data.get('dimension'),
+            'coordinates':       data.get('coordinates'),
+            'metric_data':       data.get('metric_data'),
+            'christoffel_symbols': data.get('christoffel_symbols', []),
+            'riemann_tensor':    data.get('riemann_tensor', []),
+            'ricci_tensor':      data.get('ricci_tensor', []),
+            'scalar_curvature':  data.get('scalar_curvature'),
+            'einstein_tensor':   data.get('einstein_tensor', []),
+            'weyl_tensor':       data.get('weyl_tensor', []),
+        }
+
+        # 5) get_or_create
+        tensor, created = Tensor.objects.get_or_create(
+            metric_hash=metric_hash,
+            defaults=defaults
+        )
+
+        serializer = self.get_serializer(tensor)
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(serializer.data, status=status_code)
+
     @action(detail=False, methods=['post'], url_path='find-similar')
     def find_similar(self, request):
         data   = request.data
