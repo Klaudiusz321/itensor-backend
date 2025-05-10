@@ -1,19 +1,16 @@
 # myproject/urls.py
 
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 import logging
-from django.urls import path, include
+
 # DRF ViewSet dla /api/tensors/
 from calculator.views.tensor_viewset import TensorViewSet
 
-# „Klejone" widoki
+# „Klejone” widoki (pozostałe, nie kolidujące)
 from calculator.views.views import (
     health_check,
-    differential_operators,
-    numerical_calculate_view,
-    symbolic_calculate_view
 )
 from calculator.views.mhd.mhd import (
     mhd_simulation,
@@ -31,27 +28,24 @@ urlpatterns = [
     # panel administracyjny
     path('admin/', admin.site.urls),
 
-    # wszystkie endpointy DRF dla TensorViewSet:
-    # GET/POST /api/tensors/  etc.
-   
+    # wszystkie endpointy DRF dla TensorViewSet, w tym:
+    #   GET/POST    /api/tensors/
+    #   POST        /api/tensors/numerical/
+    #   POST        /api/tensors/symbolic/
+    #   POST        /api/tensors/differential-operators/
+    #   POST        /api/tensors/find-similar/
     path('api/', include(router.urls)),
-    # proste endpointy „funkcyjne"
-    path('api/health/',                health_check,            name='health_check'),
-    path('api/tensors/numerical/',     numerical_calculate_view, name='numerical_calculation'),
-    path('api/tensors/numeric/',       numerical_calculate_view, name='numerical_calculation_alias'),
-    path('api/tensors/symbolic/',      symbolic_calculate_view, name='symbolic_calculation'),
-    path('api/differential-operators/', differential_operators,   name='differential_operators'),
+
+    # proste endpointy „funkcyjne” (nie kolidują)
+    path('api/health/', health_check, name='health_check'),
 
     # MHD
-    path('api/mhd/simulation/',    mhd_simulation,   name='mhd_simulation'),
-    path('api/mhd/snapshot/',      mhd_snapshot,     name='mhd_snapshot'),
-    path('api/mhd/field-plots/',   mhd_field_plots,  name='mhd_field_plots'),
-
-    # Add a route for find-similar endpoint
-    path('api/tensors/find-similar/', TensorViewSet.as_view({'post': 'find_similar'}), name='find_similar'),
+    path('api/mhd/simulation/',  mhd_simulation,   name='mhd_simulation'),
+    path('api/mhd/snapshot/',    mhd_snapshot,     name='mhd_snapshot'),
+    path('api/mhd/field-plots/', mhd_field_plots,  name='mhd_field_plots'),
 ]
 
-# Debug: wypisz wszystkie zarejestrowane ścieżki
+# (opcjonalnie) debug: wypisz wszystkie zarejestrowane ścieżki
 for entry in urlpatterns:
     try:
         logger.info(f"URL: {entry.pattern}")
