@@ -8,11 +8,7 @@ import logging
 from calculator.views.tensor_viewset import TensorViewSet
 from calculator.views.views import health_check
 from calculator.views.views import differential_operators  # Import the direct view
-from calculator.views.mhd.mhd import (
-    mhd_simulation,
-    mhd_snapshot,
-    mhd_field_plots
-)
+from calculator.views.mhd_views import MHDSimulationView
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +31,8 @@ urlpatterns = [
     
     # Add direct path for differential operators (old URL)
     path('api/differential-operators/', differential_operators, name='differential_operators'),
-
-    # MHD
-    path('api/mhd/simulation/',  mhd_simulation,   name='mhd_simulation'),
-    path('api/mhd/snapshot/',    mhd_snapshot,     name='mhd_snapshot'),
-    path('api/mhd/field-plots/', mhd_field_plots,  name='mhd_field_plots'),
+    #MHD
+    path('api/mhd/simulation/', MHDSimulationView.as_view(), name='mhd_simulation'),
 ]
 
 # (opcjonalnie) debug: wypisz wszystkie zarejestrowane ścieżki
