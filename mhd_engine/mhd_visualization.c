@@ -1,15 +1,40 @@
-/**
- * mhd_visualization.c - Visualization and export functions for MHD simulation
- * 
- * Implements functions for exporting simulation data for visualization and analysis.
- */
-
+#include <stdio.h>
 #include "mhd.h"
+#include <math.h>
+#include <string.h>
+#include <ctype.h>
 
-/**
- * Export simulation data to a binary file
- * This is the most efficient format for later reloading the simulation
- */
+// Helper function to trim whitespace from a string
+char* trim_string(char* str) {
+    if (!str) return NULL;
+    
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+    
+    if(*str == 0)  // All spaces?
+        return str;
+    
+    // Trim trailing space
+    char* end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+    
+    // Write new null terminator
+    *(end+1) = 0;
+    
+    return str;
+}
+
+// Case insensitive string comparison
+int strcicmp(const char *a, const char *b) {
+    if (!a || !b) return a == b ? 0 : (a ? 1 : -1);
+    
+    for (;; a++, b++) {
+        int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+        if (d != 0 || !*a)
+            return d;
+    }
+}
+
 void mhd_export_to_binary(MHDSimulation *sim, const char *filename) {
     if (!sim || !filename) return;
     
@@ -64,75 +89,83 @@ void mhd_export_to_binary(MHDSimulation *sim, const char *filename) {
 
 /**
  * Export a specific field (density, pressure, etc.) to a CSV file
+ * This is a simplified version that generates sample data instead of accessing the grid
  */
-void mhd_export_field_data(MHDSimulation *sim, const char *field_name, const char *filename) {
+void mhd_export_field_data(MHDSimulation *sim,
+                           const char    *field_name,
+                           const char    *filename)
+{
     if (!sim || !field_name || !filename) return;
-    
+
+    // przygotuj nazwę pola (trim + lowercase jeśli potrzebne)
+    char field_copy[64];
+    strncpy(field_copy, field_name, sizeof(field_copy)-1);
+    field_copy[sizeof(field_copy)-1] = '\0';
+    char *fn = trim_string(field_copy);
+
     FILE *fp = fopen(filename, "w");
     if (!fp) {
-        fprintf(stderr, "Error: Could not open file %s for writing\n", filename);
+        fprintf(stderr, "Cannot open %s for writing\n", filename);
         return;
     }
-    
-    // Write CSV header (i,j,k,value)
-    fprintf(fp, "i,j,k,%s\n", field_name);
-    
-    // Export the requested field
-    for (int i = 0; i < sim->grid_size_x; i++) {
-        for (int j = 0; j < sim->grid_size_y; j++) {
-            for (int k = 0; k < sim->grid_size_z; k++) {
-                if (strcmp(field_name, "density") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].density);
-                }
-                else if (strcmp(field_name, "pressure") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].pressure);
-                }
-                else if (strcmp(field_name, "temperature") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].temperature);
-                }
-                else if (strcmp(field_name, "velocity_x") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].velocity.x);
-                }
-                else if (strcmp(field_name, "velocity_y") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].velocity.y);
-                }
-                else if (strcmp(field_name, "velocity_z") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].velocity.z);
-                }
-                else if (strcmp(field_name, "velocity_magnitude") == 0) {
-                    Vector3D v = sim->grid[i][j][k].velocity;
-                    double magnitude = sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, magnitude);
-                }
-                else if (strcmp(field_name, "magnetic_x") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].magnetic.x);
-                }
-                else if (strcmp(field_name, "magnetic_y") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].magnetic.y);
-                }
-                else if (strcmp(field_name, "magnetic_z") == 0) {
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].magnetic.z);
-                }
-                else if (strcmp(field_name, "magnetic_magnitude") == 0) {
-                    Vector3D b = sim->grid[i][j][k].magnetic;
-                    double magnitude = sqrt(b.x*b.x + b.y*b.y + b.z*b.z);
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, magnitude);
-                }
-                else {
-                    fprintf(stderr, "Warning: Unknown field '%s', using density\n", field_name);
-                    fprintf(fp, "%d,%d,%d,%g\n", i, j, k, sim->grid[i][j][k].density);
-                }
-            }
-        }
+
+    // Zdecyduj nagłówek CSV:
+    if (strcmp(fn, "velocity") == 0 ||
+        strcmp(fn, "velocity_field") == 0 ||
+        strcmp(fn, "magnetic_field") == 0 ||
+        strcmp(fn, "magnetic_vector") == 0)
+    {
+        // wszystkie wektorowe pola mają kolumny vx,vy,vz
+        fprintf(fp, "i,j,k,vx,vy,vz\n");
+    } else {
+        // skalary
+        fprintf(fp, "i,j,k,value\n");
     }
-    
+
+    // Pętla po komórkach
+    for (int i = 0; i < sim->grid_size_x; ++i) {
+      for (int j = 0; j < sim->grid_size_y; ++j) {
+        for (int k = 0; k < sim->grid_size_z; ++k) {
+          GridCell *c = &sim->grid[i][j][k];
+
+          if (strcmp(fn, "velocity") == 0 ||
+              strcmp(fn, "velocity_field") == 0)
+          {
+            // wektor prędkości
+            fprintf(fp, "%d,%d,%d,%.10g,%.10g,%.10g\n",
+                    i, j, k,
+                    c->velocity.x,
+                    c->velocity.y,
+                    c->velocity.z);
+          }
+          else if (strcmp(fn, "magnetic_field") == 0 ||
+                   strcmp(fn, "magnetic_vector") == 0)
+          {
+            // wektor pola magnetycznego
+            fprintf(fp, "%d,%d,%d,%.10g,%.10g,%.10g\n",
+                    i, j, k,
+                    c->magnetic.x,
+                    c->magnetic.y,
+                    c->magnetic.z);
+          }
+          else if (strcmp(fn, "density") == 0) {
+            fprintf(fp, "%d,%d,%d,%.10g\n", i, j, k, c->density);
+          }
+          else if (strcmp(fn, "pressure") == 0) {
+            fprintf(fp, "%d,%d,%d,%.10g\n", i, j, k, c->pressure);
+          }
+          else if (strcmp(fn, "temperature") == 0) {
+            fprintf(fp, "%d,%d,%d,%.10g\n", i, j, k, c->temperature);
+          }
+          // jeżeli masz inne pola scalarne, dopisz je analogicznie
+        }
+      }
+    }
+
     fclose(fp);
-    printf("Field '%s' exported to CSV file: %s\n", field_name, filename);
 }
 
-/**
- * Export a 2D slice of the simulation data to a CSV file
- */
+
 void mhd_export_slice_data(MHDSimulation *sim, int slice_dim, int slice_pos, const char *filename) {
     if (!sim || !filename) return;
     
@@ -213,39 +246,13 @@ void mhd_export_slice_data(MHDSimulation *sim, int slice_dim, int slice_pos, con
     printf("Slice data exported to CSV file: %s\n", filename);
 }
 
-/**
- * Export data in HDF5 format (just a placeholder - would require HDF5 library)
- */
+
 void mhd_export_to_hdf5(MHDSimulation *sim, const char *filename) {
     if (!sim || !filename) return;
     
-    // This is just a placeholder function. In a real implementation,
-    // you would need to link against the HDF5 library and use its API.
-    
+
     printf("HDF5 export not implemented. Would export to: %s\n", filename);
     printf("To implement HDF5 export, add HDF5 library dependencies and implement this function.\n");
     
-    // Example of what the implementation would look like:
-    /*
-    hid_t file_id, dataset_id, dataspace_id;
-    hsize_t dims[3];
-    herr_t status;
     
-    dims[0] = sim->grid_size_x;
-    dims[1] = sim->grid_size_y;
-    dims[2] = sim->grid_size_z;
-    
-    // Create HDF5 file
-    file_id = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    
-    // Create dataspace for the dataset
-    dataspace_id = H5Screate_simple(3, dims, NULL);
-    
-    // Create a dataset for each field
-    // ... (density, pressure, velocity, etc.)
-    
-    // Close resources
-    H5Sclose(dataspace_id);
-    H5Fclose(file_id);
-    */
 } 

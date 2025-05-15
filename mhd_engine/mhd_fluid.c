@@ -55,44 +55,81 @@ void mhd_update_fluid_dynamics(MHDSimulation *sim) {
 }
 
 
+void mhd_initialize_fluid_parameters(
+    MHDSimulation *sim,
+    double density,
+    double pressure,
+    double temperature
+) {
+    // 1) Sprawdzenie, czy sim jest NULL lub -1
+    if (!sim || (uintptr_t)sim == (uintptr_t)-1) {
+        fprintf(stderr, "❌ Error: Simulation pointer is invalid (%p)\n", (void*)sim);
+        return;
+    }
 
-/**
- * Initialize fluid parameters with uniform values
- */
-void mhd_initialize_fluid_parameters(MHDSimulation *sim, double density, double pressure, double temperature) {
-    if (!sim) return;
-    
-    // Check for valid parameters
-    if (density <= 0.0) {
-        fprintf(stderr, "Warning: Density must be positive, using default value\n");
-        density = 1.0;
+    // 2) Debug: stan struktury
+    fprintf(stderr, "🔧 Debug: sim=%p, grid=%p, size=%dx%dx%d\n",
+        (void*)sim,
+        (void*)sim->grid,
+        sim->grid_size_x, sim->grid_size_y, sim->grid_size_z
+    );
+
+    // 3) Czy grid został zaalokowany?
+    if (!sim->grid || (uintptr_t)sim->grid == (uintptr_t)-1) {
+        fprintf(stderr, "❌ Error: Simulation grid pointer is invalid (%p)\n", (void*)sim->grid);
+        return;
     }
-    
-    if (pressure <= 0.0) {
-        fprintf(stderr, "Warning: Pressure must be positive, using default value\n");
-        pressure = 1.0;
+
+    // 4) Dodatkowe sprawdzenie sensowności rozmiarów
+    if (sim->grid_size_x <= 0 || sim->grid_size_y <= 0 || sim->grid_size_z <= 0) {
+        fprintf(stderr,
+            "❌ Error: One of grid dimensions is non-positive (%d, %d, %d)\n",
+            sim->grid_size_x, sim->grid_size_y, sim->grid_size_z
+        );
+        return;
     }
-    
-    if (temperature <= 0.0) {
-        fprintf(stderr, "Warning: Temperature must be positive, using default value\n");
-        temperature = 1.0;
-    }
-    
-    // Set the initial values in the simulation struct
+
+    // Zapisz wartości w strukturze symulacji
     sim->initial_density = density;
     sim->initial_pressure = pressure;
     sim->initial_temperature = temperature;
-    
-    // Set the values in all grid cells
-    for (int i = 0; i < sim->grid_size_x; i++) {
-        for (int j = 0; j < sim->grid_size_y; j++) {
-            for (int k = 0; k < sim->grid_size_z; k++) {
-                sim->grid[i][j][k].density = density;
-                sim->grid[i][j][k].pressure = pressure;
-                sim->grid[i][j][k].temperature = temperature;
+
+    fprintf(stderr,
+        "✅ Setting fluid parameters: density=%.3f, pressure=%.3f, temperature=%.3f\n",
+        density, pressure, temperature
+    );
+
+    // 5) Trójpoziomowa pętla z kontrolą każdego wskaźnika pośredniego
+    for (int i = 0; i < sim->grid_size_x; ++i) {
+        // sprawdź pierwszy poziom
+        if (!sim->grid[i] || (uintptr_t)sim->grid[i] == (uintptr_t)-1) {
+            fprintf(stderr, "❌ Warning: sim->grid[%d] is invalid (%p), skipping slice\n",
+                    i, (void*)sim->grid[i]);
+            continue;
+        }
+
+        for (int j = 0; j < sim->grid_size_y; ++j) {
+            // sprawdź drugi poziom
+            if (!sim->grid[i][j] || (uintptr_t)sim->grid[i][j] == (uintptr_t)-1) {
+                fprintf(stderr,
+                    "❌ Warning: sim->grid[%d][%d] is invalid (%p), skipping row\n",
+                    i, j, (void*)sim->grid[i][j]
+                );
+                continue;
+            }
+
+            for (int k = 0; k < sim->grid_size_z; ++k) {
+                // w tym momencie sim->grid[i][j] jest bezpieczne
+                GridCell *cell = &sim->grid[i][j][k];
+                // tutaj cell nigdy nie będzie NULL, więc można od razu pisać:
+                cell->density     = density;
+                cell->pressure    = pressure;
+                cell->temperature = temperature;
             }
         }
     }
+
+    fprintf(stderr, "✅ Fluid parameters set successfully in C.\n");
 }
 
 /**
@@ -101,10 +138,18 @@ void mhd_initialize_fluid_parameters(MHDSimulation *sim, double density, double 
 void mhd_set_initial_velocity(MHDSimulation *sim, double vx, double vy, double vz) {
     if (!sim) return;
     
+    fprintf(stderr, "Setting initial velocity: V=(%g, %g, %g)\n", vx, vy, vz);
+    
     // Set the initial velocity in the simulation struct
     sim->initial_velocity.x = vx;
     sim->initial_velocity.y = vy;
     sim->initial_velocity.z = vz;
+    
+    // Sprawdź czy siatka istnieje
+    if (!sim->grid) {
+        fprintf(stderr, "Warning: Grid not allocated in mhd_set_initial_velocity\n");
+        return;
+    }
     
     // Set the velocity in all grid cells
     for (int i = 0; i < sim->grid_size_x; i++) {
@@ -116,6 +161,8 @@ void mhd_set_initial_velocity(MHDSimulation *sim, double vx, double vy, double v
             }
         }
     }
+    
+    fprintf(stderr, "Initial velocity set successfully\n");
 }
 
 /**
@@ -124,31 +171,6 @@ void mhd_set_initial_velocity(MHDSimulation *sim, double vx, double vy, double v
  * This function is for additional fluid dynamics updates beyond what's
  * handled by the main solver.
  */
-void mhd_update_fluid_dynamics(MHDSimulation *sim) {
-    if (!sim) return;
-    
-    // Most of the fluid dynamics are handled in the main solver.
-    // This function can be used for additional effects or specialized behaviors.
-    
-    // For example, we could add a density stratification in the z-direction
-    if (sim->mode == DYNAMIC) {
-        double scale_height = sim->grid_size_z / 4.0;
-        double base_density = sim->initial_density;
-        
-        for (int i = 0; i < sim->grid_size_x; i++) {
-            for (int j = 0; j < sim->grid_size_y; j++) {
-                for (int k = 0; k < sim->grid_size_z; k++) {
-                    // Apply exponential density stratification
-                    double height = (double)k / sim->grid_size_z;
-                    sim->grid[i][j][k].density = base_density * exp(-height / scale_height);
-                    
-                    // Adjust pressure to maintain hydrostatic equilibrium
-                    sim->grid[i][j][k].pressure = sim->grid[i][j][k].density * sim->grid[i][j][k].temperature;
-                }
-            }
-        }
-    }
-}
 
 /**
  * Apply a temperature gradient to the simulation

@@ -13,11 +13,19 @@
 void mhd_initialize_magnetic_field(MHDSimulation *sim, double bx, double by, double bz) {
     if (!sim) return;
     
+    fprintf(stderr, "Initializing magnetic field: B=(%g, %g, %g)\n", bx, by, bz);
+    
+    // Zapisz wartości w strukturze symulacji
     sim->initial_magnetic_field.x = bx;
     sim->initial_magnetic_field.y = by;
     sim->initial_magnetic_field.z = bz;
     
-    // Set the magnetic field in all grid cells
+    // Ustaw pole magnetyczne we wszystkich komórkach siatki
+    if (!sim->grid) {
+        fprintf(stderr, "Warning: Grid not allocated in mhd_initialize_magnetic_field\n");
+        return;
+    }
+    
     for (int i = 0; i < sim->grid_size_x; i++) {
         for (int j = 0; j < sim->grid_size_y; j++) {
             for (int k = 0; k < sim->grid_size_z; k++) {
@@ -27,6 +35,8 @@ void mhd_initialize_magnetic_field(MHDSimulation *sim, double bx, double by, dou
             }
         }
     }
+    
+    fprintf(stderr, "Magnetic field initialized successfully\n");
 }
 
 /**
@@ -71,7 +81,7 @@ void mhd_update_magnetic_field(MHDSimulation *sim) {
     // or specialized magnetic field behaviors.
     
     // For example, we could add a pulsating magnetic field for dynamic simulation
-    if (sim->mode == DYNAMIC) {
+    if (sim->mode == MODE_DYNAMIC) {
         double frequency = 0.1; // Frequency of pulsation
         double amplitude = 0.2; // Amplitude of pulsation
         
