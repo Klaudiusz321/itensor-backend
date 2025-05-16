@@ -196,12 +196,16 @@ void   mhd_export_to_binary(MHDSimulation *sim, const char *fn);
 void   mhd_export_to_hdf5(MHDSimulation *sim, const char *fn);
 void   mhd_export_slice_data(MHDSimulation *sim, int slice_dim, int slice_pos, const char *fn);
 void   mhd_export_field_data(MHDSimulation *sim, const char *field_name, const char *fn);
+void   mhd_export_frontend_data(MHDSimulation *sim, const char *fn);
+void   mhd_calculate_vector_magnitudes(MHDSimulation *sim, double ***velocity_magnitude, double ***magnetic_magnitude);
+void   mhd_free_vector_magnitudes(double ***velocity_magnitude, double ***magnetic_magnitude, int nx);
 
 double mhd_get_simulation_time(MHDSimulation *sim);
 double mhd_get_energy_kinetic(MHDSimulation *sim);
 double mhd_get_energy_magnetic(MHDSimulation *sim);
 double mhd_get_energy_thermal(MHDSimulation *sim);
 double mhd_get_max_div_b(MHDSimulation *sim);
+void   mhd_update_all_metrics(MHDSimulation *sim);
 
 /* Funkcje obliczające faktyczne wartości energii i dywergencji */
 double compute_energy_kinetic(MHDSimulation *sim);

@@ -11,7 +11,8 @@ SRC = mhd.c \
       mhd_visualization.c \
       mhd_fluid.c \
       mhd_advance.c \
-      mhd_metrics.c
+      mhd_metrics.c \
+      mhd_run_step.c
 
 OBJ = $(SRC:.c=.o)
 

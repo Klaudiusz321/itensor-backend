@@ -33,3 +33,24 @@ double mhd_get_max_div_b(MHDSimulation *sim) {
     sim->max_div_b = compute_max_divergence_B(sim);
     return sim->max_div_b;
 }
+
+/**
+ * Update all simulation metrics at once
+ * This function calculates and updates all energy metrics and magnetic field divergence
+ * for efficient reporting to the frontend
+ * 
+ * @param sim Pointer to the simulation context
+ */
+void mhd_update_all_metrics(MHDSimulation *sim) {
+    if (!sim) return;
+    
+    // Update all metrics
+    sim->energy_kinetic = compute_energy_kinetic(sim);
+    sim->energy_magnetic = compute_energy_magnetic(sim);
+    sim->energy_thermal = compute_energy_thermal(sim);
+    sim->max_div_b = compute_max_divergence_B(sim);
+    
+    // Log the metrics for debugging
+    printf("Updated metrics: E_kin=%.3f, E_mag=%.3f, E_th=%.3f, max_div_B=%.6f\n",
+           sim->energy_kinetic, sim->energy_magnetic, sim->energy_thermal, sim->max_div_b);
+}
