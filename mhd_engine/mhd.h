@@ -206,7 +206,7 @@ double mhd_get_energy_magnetic(MHDSimulation *sim);
 double mhd_get_energy_thermal(MHDSimulation *sim);
 double mhd_get_max_div_b(MHDSimulation *sim);
 void   mhd_update_all_metrics(MHDSimulation *sim);
-
+void   mhd_apply_dynamic_changes(MHDSimulation *sim);
 /* Funkcje obliczające faktyczne wartości energii i dywergencji */
 double compute_energy_kinetic(MHDSimulation *sim);
 double compute_energy_magnetic(MHDSimulation *sim);

@@ -124,6 +124,11 @@ void mhd_run_step(MHDSimulation *sim) {
     // 4) Update simulation time
     sim->current_time += sim->time_step;
     
-    // 5) Update all metrics after the step
+    // 5) Apply dynamic changes if enabled
+    if (sim->dynamic_field_enabled) {
+        mhd_apply_dynamic_changes(sim);
+    }
+    
+    // 6) Update all metrics after the step
     mhd_update_all_metrics(sim);
 } 

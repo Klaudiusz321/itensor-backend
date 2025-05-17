@@ -33,22 +33,57 @@ void mhd_apply_disturbances(MHDSimulation *sim, double intensity) {
  * Apply dynamic (time-dependent) changes to the simulation
  */
 void mhd_apply_dynamic_changes(MHDSimulation *sim) {
-    if (!sim) return;
+    if (!sim || !sim->dynamic_field_enabled) return;
+    
     double t = sim->current_time;
-    /* Example oscillation parameters, could be configured */
-    double freq = 0.2;
-    double amp  = 0.1;
-    double osc  = amp * sin(2.0 * PI * freq * t);
-    for (int i = 1; i < sim->grid_size_x-1; ++i) {
-        for (int j = 1; j < sim->grid_size_y-1; ++j) {
-            for (int k = 1; k < sim->grid_size_z-1; ++k) {
-                GridCell *c = &sim->grid[i][j][k];
-                c->velocity.x += osc;
-                c->velocity.y += amp * cos(2.0 * PI * freq * t);
-                c->velocity.z += amp * sin(2.0 * PI * freq * t + PI/4);
+    double freq = sim->dynamic_field_frequency;
+    double amp = sim->dynamic_field_amplitude;
+    
+    // Different behaviors based on the dynamic field type
+    if (sim->dynamic_field_type == 0) {
+        // Type 0: No dynamic changes (this is a fallback, should be prevented by the enabled check)
+        return;
+    }
+    else if (sim->dynamic_field_type == 1) {
+        // Type 1: Pulsating field - uniform magnitude changes
+        double osc = amp * sin(2.0 * PI * freq * t);
+        for (int i = 1; i < sim->grid_size_x-1; ++i) {
+            for (int j = 1; j < sim->grid_size_y-1; ++j) {
+                for (int k = 1; k < sim->grid_size_z-1; ++k) {
+                    GridCell *c = &sim->grid[i][j][k];
+                    c->magnetic.x = sim->initial_magnetic_field.x * (1.0 + osc);
+                    c->magnetic.y = sim->initial_magnetic_field.y * (1.0 + osc);
+                    c->magnetic.z = sim->initial_magnetic_field.z * (1.0 + osc);
+                }
             }
         }
     }
+    else if (sim->dynamic_field_type == 2) {
+        // Type 2: Rotating field - direction changes
+        double cos_val = cos(2.0 * PI * freq * t);
+        double sin_val = sin(2.0 * PI * freq * t);
+        
+        // Get the magnitude of the initial field
+        double mag_x = sim->initial_magnetic_field.x;
+        double mag_y = sim->initial_magnetic_field.y;
+        double mag_z = sim->initial_magnetic_field.z;
+        double magnitude = sqrt(mag_x*mag_x + mag_y*mag_y + mag_z*mag_z);
+        
+        if (magnitude > 0) {
+            // Apply rotation in the x-y plane
+            for (int i = 1; i < sim->grid_size_x-1; ++i) {
+                for (int j = 1; j < sim->grid_size_y-1; ++j) {
+                    for (int k = 1; k < sim->grid_size_z-1; ++k) {
+                        GridCell *c = &sim->grid[i][j][k];
+                        c->magnetic.x = magnitude * cos_val * amp;
+                        c->magnetic.y = magnitude * sin_val * amp;
+                        c->magnetic.z = mag_z; // Z component remains unchanged
+                    }
+                }
+            }
+        }
+    }
+    // We could add more types here in the future
 }
 
 /**
